@@ -1,0 +1,45 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: picly
+      POSTGRES_USER: picly
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picly}
+    volumes:
+      - picly_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U picly"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: services/face-search/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      DATABASE_URL: postgresql://picly:${POSTGRES_PASSWORD:-picly}@db:5432/picly
+      PICLY_API_KEY: ${PICLY_API_KEY:-}
+      UPLOAD_DIR: /tmp/picly_uploads
+      SCAN_THRESHOLD: "1000"
+    volumes:
+      - ./photos:/photos:ro
+      - picly_uploads:/tmp/picly_uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  picly_pgdata:
+  picly_uploads:
