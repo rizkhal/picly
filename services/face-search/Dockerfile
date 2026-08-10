@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender-dev \
     libgomp1 \
     libgl1 \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

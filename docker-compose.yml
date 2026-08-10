@@ -10,6 +10,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picly}
     volumes:
       - picly_pgdata:/var/lib/postgresql/data
+      - ./services/face-search/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U picly"]
       interval: 5s
@@ -18,7 +19,7 @@ services:
 
   api:
     build:
-      context: ..
+      context: .
       dockerfile: services/face-search/Dockerfile
     restart: unless-stopped
     ports:
@@ -29,13 +30,16 @@ services:
       UPLOAD_DIR: /tmp/picly_uploads
       SCAN_THRESHOLD: "1000"
     volumes:
-      - ./photos:/photos:ro
+      - /Users/rizkal/picly-photos-local:/photos:ro
+      - /Volumes/XStorage:/host-xstorage:ro
       - picly_uploads:/tmp/picly_uploads
+      - picly_thumbs:/tmp/picly_thumbs
+      - picly_insightface:/root/.insightface/models
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -43,3 +47,5 @@ services:
 volumes:
   picly_pgdata:
   picly_uploads:
+  picly_thumbs:
+  picly_insightface:

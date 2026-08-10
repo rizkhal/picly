@@ -181,6 +181,18 @@ html, body, #root {
   display: block;
 }
 
+.photo-card .face-overlay {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  object-fit: cover;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
 .photo-card .similarity {
   position: absolute;
   top: 8px;

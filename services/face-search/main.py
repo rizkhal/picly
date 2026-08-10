@@ -8,7 +8,7 @@ from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 from pydantic import BaseModel, Field, validator
 import numpy as np
 from insightface.app import FaceAnalysis
@@ -80,6 +80,12 @@ app.add_middleware(
 # --- Auth ---
 async def verify_api_key(request: Request):
     if not API_KEY:
+        return
+    # Allow requests from localhost / private networks for desktop app / local dev
+    client_host = request.client.host if request.client else ""
+    if client_host in ("127.0.0.1", "localhost", "::1"):
+        return
+    if client_host.startswith("172.") or client_host.startswith("192.168.") or client_host.startswith("10."):
         return
     key = request.headers.get("X-API-Key")
     if key != API_KEY:
@@ -186,7 +192,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
     )
 
 # --- Endpoints ---
-@app.get("/health", dependencies=[Depends(verify_api_key)])
+@app.get("/health")
 async def health():
     """Health check with DB connectivity."""
     try:
@@ -252,8 +258,16 @@ def scan_folder_task(folder_path: str, files: List[Path]) -> ScanStatus:
     with db_connect() as conn:
         for img_path in files:
             try:
+                photo_path = str(img_path)
+                # Dedup: skip photos already indexed (same path)
+                existing = conn.execute(
+                    text("SELECT 1 FROM photos WHERE path = :p LIMIT 1"), {"p": photo_path}
+                ).fetchone()
+                if existing:
+                    continue
+
                 photo_id = str(uuid.uuid4())
-                faces_data = get_embedding(str(img_path))
+                faces_data = get_embedding(photo_path)
                 if not faces_data:
                     continue
                 
@@ -362,19 +376,21 @@ async def search_face(
         
         with db_connect() as conn:
             rows = conn.execute(text("""
-                SELECT f.id, f.photo_id, p.path, p.thumb_path, f.embedding, f.person_id
+                SELECT f.id, f.photo_id, p.path, p.thumb_path, f.embedding, f.person_id, f.bbox
                 FROM faces f JOIN photos p ON f.photo_id = p.id
             """)).fetchall()
             
             for row in rows:
-                face_id, photo_id, path, thumb_path, embedding_json, person_id = row
+                face_id, photo_id, path, thumb_path, embedding_json, person_id, bbox_arr = row
                 embedding = np.array(embedding_json, dtype=np.float32)
                 sim = cosine_similarity(query_emb, embedding)
                 if sim >= threshold:
                     results.append({
+                        "face_id": face_id,
                         "photo_id": photo_id,
                         "path": path,
                         "thumb_path": thumb_path,
+                        "bbox": [int(v) for v in bbox_arr] if bbox_arr else None,
                         "similarity": round(sim, 4),
                         "person_id": person_id
                     })
@@ -444,14 +460,14 @@ async def get_person_photos(person_id: str):
             raise HTTPException(404, "Person not found")
         
         photos = conn.execute(text("""
-            SELECT DISTINCT p.id, p.path, p.thumb_path, p.width, p.height
+            SELECT DISTINCT p.id, p.path, p.thumb_path, p.width, p.height, p.created_at
             FROM photos p
             JOIN faces f ON p.id = f.photo_id
             WHERE f.person_id = :id
             ORDER BY p.created_at DESC
         """), {"id": person_id}).fetchall()
         
-        photo_list = [{"photo_id": r[0], "path": r[1], "thumb_path": r[2], "width": r[3], "height": r[4]} for r in photos]
+        photo_list = [{"photo_id": r[0], "path": r[1], "thumb_path": r[2], "width": r[3], "height": r[4], "created_at": r[5].isoformat() if r[5] else None} for r in photos]
     return {"person_id": person_id, "name": row[0], "photos": photo_list}
 
 @app.get("/thumb/{photo_id}", dependencies=[Depends(verify_api_key)])
@@ -465,8 +481,52 @@ async def get_thumbnail(photo_id: str):
     
     if not Path(thumb_path).exists():
         raise HTTPException(404, "Thumbnail file missing")
-    
+
     return FileResponse(thumb_path, media_type="image/jpeg")
+
+@app.get("/face/{face_id}", dependencies=[Depends(verify_api_key)])
+async def get_face_crop(face_id: str):
+    """Serve a cropped face thumbnail for the given face (Google-Photos-style)."""
+    with db_connect() as conn:
+        row = conn.execute(text("""
+            SELECT f.bbox, p.thumb_path, p.path
+            FROM faces f JOIN photos p ON f.photo_id = p.id
+            WHERE f.id = :id
+        """), {"id": face_id}).fetchone()
+        if not row:
+            raise HTTPException(404, "Face not found")
+        bbox, thumb_path, photo_path = row
+
+    if bbox is None or len(bbox) < 4:
+        raise HTTPException(404, "Face has no bounding box")
+
+    # Use the thumbnail as source when available (smaller/faster); else the full image.
+    src = thumb_path if thumb_path and Path(thumb_path).exists() else photo_path
+    if not src or not Path(src).exists():
+        raise HTTPException(404, "Source image missing")
+
+    img = cv2.imread(src)
+    if img is None:
+        raise HTTPException(404, "Could not decode source image")
+    h, w = img.shape[:2]
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+    # Clamp to image bounds, add slight padding, square-crop around the face.
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(w, x2), min(h, y2)
+    pad = int((y2 - y1) * 0.2)
+    x1, y1 = max(0, x1 - pad), max(0, y1 - pad)
+    x2, y2 = min(w, x2 + pad), min(h, y2 + pad)
+    side = max(x2 - x1, y2 - y1)
+    cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+    half = side // 2
+    sx1, sy1 = max(0, cx - half), max(0, cy - half)
+    sx2, sy2 = min(w, cx + half), min(h, cy + half)
+    crop = img[sy1:sy2, sx1:sx2]
+
+    ok, buf = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    if not ok:
+        raise HTTPException(500, "Face crop encoding failed")
+    return Response(content=buf.tobytes(), media_type="image/jpeg")
 
 @app.patch("/person/{person_id}/rename", dependencies=[Depends(verify_api_key)])
 async def rename_person(person_id: str, payload: PersonRename):

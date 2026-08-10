@@ -1,9 +1,26 @@
 import { useState, useEffect, useRef } from 'react'
 
-const API_BASE = (window as any).electron?.getApiBase?.() || 'http://localhost:8000'
+let API_BASE = 'http://localhost:8000'
+let API_KEY = ''
+
+// electron preload exposes IPC wrappers that return Promises — resolve them once.
+const electronApi = (window as any).electron
+if (electronApi?.getApiBase) {
+  electronApi.getApiBase().then((b: string) => { API_BASE = b })
+  electronApi.getApiKey().then((k: string) => { API_KEY = k })
+}
+
+const jsonHeaders = () => ({
+  'Content-Type': 'application/json',
+  'X-API-Key': API_KEY,
+})
+
+const multipartHeaders = () => ({
+  'X-API-Key': API_KEY,
+})
 
 type Person = { person_id: string; name: string; photo_count: number }
-type Photo = { photo_id: string; path: string; thumb_path?: string; similarity?: number; person_id?: string }
+type Photo = { photo_id: string; path: string; thumb_path?: string; similarity?: number; person_id?: string; face_id?: string }
 type ScanResult = { scanned: number; total_faces: number; persons: number; thumbs_generated: number }
 
 export default function App() {
@@ -14,16 +31,18 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [scanStatus, setScanStatus] = useState<ScanResult | null>(null)
+  const [scanError, setScanError] = useState<string | null>(null)
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [driveStatus, setDriveStatus] = useState('Checking...')
   const [searchFile, setSearchFile] = useState<File | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const driveFailures = useRef(0)
 
   // Load persons
   const loadPersons = async () => {
     try {
-      const res = await fetch(`${API_BASE}/person`)
+      const res = await fetch(`${API_BASE}/person`, { headers: jsonHeaders() })
       const data = await res.json()
       setPersons(data.persons || [])
     } catch (e) {
@@ -36,11 +55,11 @@ export default function App() {
     setLoading(true)
     try {
       if (personId) {
-        const res = await fetch(`${API_BASE}/person/${personId}/photos`)
+        const res = await fetch(`${API_BASE}/person/${personId}/photos`, { headers: jsonHeaders() })
         const data = await res.json()
         setPhotos(data.photos.map((p: any) => ({ ...p, person_id: personId })))
       } else {
-        const res = await fetch(`${API_BASE}/photos?limit=200`)
+        const res = await fetch(`${API_BASE}/photos?limit=200`, { headers: jsonHeaders() })
         const data = await res.json()
         setPhotos(data.photos || [])
       }
@@ -60,7 +79,7 @@ export default function App() {
       form.append('file', searchFile)
       form.append('threshold', '0.5')
       form.append('limit', '50')
-      const res = await fetch(`${API_BASE}/search`, { method: 'POST', body: form })
+      const res = await fetch(`${API_BASE}/search`, { method: 'POST', headers: multipartHeaders(), body: form })
       const data = await res.json()
       setPhotos(data.results || [])
       setSelectedPerson(null)
@@ -77,11 +96,23 @@ export default function App() {
       const paths = await (window as any).electron?.selectFolder?.()
       if (!paths || paths.length === 0) return
       const folder = paths[0]
+      if (folder && folder.startsWith('MAPPING_ERROR:')) {
+        const parts = folder.split(':')
+        setScanError(`Could not copy folder to container: ${parts.slice(1).join(':')}`)
+        return
+      }
       setScanning(true)
       setScanStatus(null)
+      setScanError(null)
       const form = new FormData()
       form.append('folder', folder)
-      const res = await fetch(`${API_BASE}/scan`, { method: 'POST', body: form })
+      const res = await fetch(`${API_BASE}/scan`, { method: 'POST', headers: multipartHeaders(), body: form })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setScanError((err as any).detail || `Scan failed (HTTP ${res.status})`)
+        setScanning(false)
+        return
+      }
       const data = await res.json()
       setScanStatus(data)
       await loadPersons()
@@ -90,7 +121,7 @@ export default function App() {
         loadPhotos(selectedPerson)
       }, 1000)
     } catch (e) {
-      console.error('Scan failed', e)
+      setScanError('Could not reach API — is the backend running?')
     } finally {
       setScanning(false)
     }
@@ -101,7 +132,7 @@ export default function App() {
     try {
       await fetch(`${API_BASE}/person/${personId}/rename`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: jsonHeaders(),
         body: JSON.stringify({ name: newName }),
       })
       await loadPersons()
@@ -114,7 +145,7 @@ export default function App() {
   const deletePerson = async (personId: string) => {
     if (!confirm('Delete this person?')) return
     try {
-      await fetch(`${API_BASE}/person/${personId}`, { method: 'DELETE' })
+      await fetch(`${API_BASE}/person/${personId}`, { method: 'DELETE', headers: jsonHeaders() })
       if (selectedPerson === personId) {
         setSelectedPerson(null)
         setPhotos([])
@@ -129,15 +160,19 @@ export default function App() {
   useEffect(() => {
     const checkDrive = async () => {
       try {
-        const res = await fetch(`${API_BASE}/health`)
+        const res = await fetch(`${API_BASE}/health`, { headers: jsonHeaders(), signal: AbortSignal.timeout(5000) })
         const data = await res.json()
+        driveFailures.current = 0
         setDriveStatus(data.database === 'connected' ? 'API connected' : 'API disconnected')
       } catch {
-        setDriveStatus('API unreachable')
+        // keep last good status on a single failure; only declare unreachable
+        // after two consecutive failures (covers the API's cold-start window)
+        driveFailures.current += 1
+        if (driveFailures.current >= 2) setDriveStatus('API unreachable')
       }
     }
     checkDrive()
-    const interval = setInterval(checkDrive, 30000)
+    const interval = setInterval(checkDrive, 10000)
     return () => clearInterval(interval)
   }, [])
 
@@ -178,6 +213,12 @@ export default function App() {
             </button>
           </div>
         </div>
+
+        {scanError && (
+          <div className="scan-error" style={{ color: '#e5484d', fontSize: '13px', padding: '6px 10px' }}>
+            {scanError}
+          </div>
+        )}
 
         {scanStatus && (
           <div className="scan-progress">
@@ -295,6 +336,14 @@ export default function App() {
                     alt=""
                     loading="lazy"
                   />
+                  {photo.face_id && (
+                    <img
+                      className="face-overlay"
+                      src={`${API_BASE}/face/${photo.face_id}`}
+                      alt=""
+                      loading="lazy"
+                    />
+                  )}
                   {photo.similarity !== undefined && (
                     <div className="similarity">{Math.round(photo.similarity * 100)}%</div>
                   )}
@@ -350,7 +399,7 @@ export default function App() {
               <button
                 className="btn btn-danger"
                 onClick={async () => {
-                  await fetch(`${API_BASE}/photo/${selectedPhoto.photo_id}`, { method: 'DELETE' })
+                  await fetch(`${API_BASE}/photo/${selectedPhoto.photo_id}`, { method: 'DELETE', headers: jsonHeaders() })
                   setSelectedPhoto(null)
                   loadPhotos(selectedPerson)
                   loadPersons()
