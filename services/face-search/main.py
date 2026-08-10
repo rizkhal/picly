@@ -19,7 +19,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 # Config
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/tmp/picly_uploads"))
-DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres@localhost/picly")
+DB_PATH = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost/picly")
 API_KEY = os.getenv("PICLY_API_KEY")  # Optional auth
 SCAN_THRESHOLD = int(os.getenv("SCAN_THRESHOLD", "1000"))  # Background if > N files
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -34,7 +34,7 @@ log = logging.getLogger("picly")
 
 # Database engine with production settings
 engine = create_engine(
-    DB_URL,
+    DB_PATH,
     poolclass=QueuePool,
     pool_size=5,
     max_overflow=10,
