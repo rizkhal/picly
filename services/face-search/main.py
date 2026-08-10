@@ -407,6 +407,34 @@ async def list_persons():
         persons = [{"person_id": r[0], "name": r[1], "photo_count": r[2]} for r in rows]
     return {"persons": persons}
 
+@app.get("/photos", dependencies=[Depends(verify_api_key)])
+async def list_all_photos(limit: int = 200, offset: int = 0):
+    """List all photos with thumbnails."""
+    with db_connect() as conn:
+        rows = conn.execute(text("""
+            SELECT p.id, p.path, p.thumb_path, p.width, p.height, p.created_at,
+                   COUNT(f.id) as face_count,
+                   MAX(CASE WHEN f.person_id IS NOT NULL THEN p2.name END) as person_name
+            FROM photos p
+            LEFT JOIN faces f ON p.id = f.photo_id
+            LEFT JOIN persons p2 ON f.person_id = p2.id
+            GROUP BY p.id, p.path, p.thumb_path, p.width, p.height, p.created_at
+            ORDER BY p.created_at DESC
+            LIMIT :limit OFFSET :offset
+        """), {"limit": limit, "offset": offset}).fetchall()
+        
+        photos = [{
+            "photo_id": r[0],
+            "path": r[1],
+            "thumb_path": r[2],
+            "width": r[3],
+            "height": r[4],
+            "created_at": r[5].isoformat() if r[5] else None,
+            "face_count": r[6],
+            "person_name": r[7]
+        } for r in rows]
+    return {"photos": photos, "limit": limit, "offset": offset}
+
 @app.get("/person/{person_id}/photos", dependencies=[Depends(verify_api_key)])
 async def get_person_photos(person_id: str):
     """Get all photos for a person."""
