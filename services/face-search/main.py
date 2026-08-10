@@ -38,15 +38,15 @@ engine = create_engine(
     poolclass=QueuePool,
     pool_size=5,
     max_overflow=10,
-    pool_pre_ping=True,  # Verify connections before use
-    pool_recycle=3600,   # Recycle connections after 1h
+    pool_pre_ping=True,
+    pool_recycle=3600,
     echo=False,
-    future=True
 )
 
 @event.listens_for(engine, "connect")
-def set_postgres_timezone(conn, record):
-    conn.execute(text("SET timezone = 'UTC'"))
+def set_postgres_timezone(dbapi_conn, connection_record):
+    with dbapi_conn.cursor() as cur:
+        cur.execute("SET timezone = 'UTC'")
 
 # Face model
 log.info("Loading face analysis model...")
