@@ -1,0 +1,81 @@
+name: Build Picly Desktop
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install deps
+        run: |
+          cd desktop
+          npm ci
+      - name: Build
+        run: |
+          cd desktop
+          npm run electron:build
+        env:
+          PICLY_API_URL: http://localhost:8000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: picly-windows
+          path: desktop/dist/*.exe
+          retention-days: 14
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2
+      - name: Install deps
+        run: |
+          cd desktop
+          npm ci
+      - name: Build
+        run: |
+          cd desktop
+          npm run electron:build
+        env:
+          PICLY_API_URL: http://localhost:8000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: picly-linux
+          path: desktop/dist/*.AppImage
+          retention-days: 14
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install deps
+        run: |
+          cd desktop
+          npm ci
+      - name: Build
+        run: |
+          cd desktop
+          npm run electron:build
+        env:
+          PICLY_API_URL: http://localhost:8000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: picly-mac
+          path: desktop/dist/*.dmg
+          retention-days: 14

@@ -3,12 +3,38 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "main": "src/main/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "vite build && electron-builder"
+  },
+  "build": {
+    "appId": "com.picly.app",
+    "productName": "Picly",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "dist/**/*",
+      "src/main/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "Picly-Setup-${version}.${ext}"
+    },
+    "linux": {
+      "target": "AppImage",
+      "artifactName": "Picly-${version}.${ext}",
+      "category": "Graphics"
+    },
+    "mac": {
+      "target": "dmg",
+      "artifactName": "Picly-${version}.${ext}",
+      "category": "public.app-category.graphics-design"
+    }
   },
   "dependencies": {
     "react": "^18.3.1",
