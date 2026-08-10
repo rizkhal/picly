@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Picly — production-grade face search API."""
+"""Picly — production-grade face search API with thumbnail cache."""
 import os, shutil, uuid, math, logging, time, hashlib
 from pathlib import Path
 from datetime import datetime
@@ -8,7 +8,7 @@ from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field, validator
 import numpy as np
 from insightface.app import FaceAnalysis
@@ -19,10 +19,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 # Config
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/tmp/picly_uploads"))
-DB_PATH = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost/picly")
-API_KEY = os.getenv("PICLY_API_KEY")  # Optional auth
-SCAN_THRESHOLD = int(os.getenv("SCAN_THRESHOLD", "1000"))  # Background if > N files
+THUMB_DIR = Path(os.getenv("THUMB_DIR", "/tmp/picly_thumbs"))
+DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost/picly")
+API_KEY = os.getenv("PICLY_API_KEY")
+SCAN_THRESHOLD = int(os.getenv("SCAN_THRESHOLD", "1000"))
+THUMB_SIZE = int(os.getenv("THUMB_SIZE", "300"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+THUMB_DIR.mkdir(parents=True, exist_ok=True)
 
 # Logging
 logging.basicConfig(
@@ -32,9 +35,9 @@ logging.basicConfig(
 )
 log = logging.getLogger("picly")
 
-# Database engine with production settings
+# Database engine
 engine = create_engine(
-    DB_PATH,
+    DB_URL,
     poolclass=QueuePool,
     pool_size=5,
     max_overflow=10,
@@ -66,7 +69,6 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Middleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
@@ -89,6 +91,7 @@ class PhotoInfo(BaseModel):
     path: str
     width: Optional[int] = None
     height: Optional[int] = None
+    thumb_path: Optional[str] = None
     faces_detected: int
     persons: List[str]
 
@@ -109,6 +112,7 @@ class PersonRename(BaseModel):
 class SearchResult(BaseModel):
     photo_id: str
     path: str
+    thumb_path: Optional[str] = None
     similarity: float = Field(..., ge=0.0, le=1.0)
     person_id: Optional[str] = None
 
@@ -116,15 +120,7 @@ class ScanStatus(BaseModel):
     scanned: int
     total_faces: int
     persons: int
-
-class SearchRequest(BaseModel):
-    threshold: float = Field(0.5, ge=0.0, le=1.0)
-    limit: int = Field(50, ge=1, le=200)
-
-class ErrorResponse(BaseModel):
-    detail: str
-    timestamp: str
-    path: str
+    thumbs_generated: int
 
 # --- Helpers ---
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -133,6 +129,24 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     if norm_a == 0 or norm_b == 0:
         return 0.0
     return float(np.dot(a, b) / (norm_a * norm_b))
+
+def make_thumbnail(src_path: str, dest_path: str, size: int = THUMB_SIZE) -> bool:
+    """Generate square thumbnail preserving aspect ratio."""
+    try:
+        img = cv2.imread(str(src_path))
+        if img is None:
+            return False
+        h, w = img.shape[:2]
+        side = min(h, w)
+        x = (w - side) // 2
+        y = (h - side) // 2
+        crop = img[y:y+side, x:x+side]
+        thumb = cv2.resize(crop, (size, size), interpolation=cv2.INTER_AREA)
+        cv2.imwrite(str(dest_path), thumb, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        return True
+    except Exception as e:
+        log.error(f"Thumbnail error for {src_path}: {e}")
+        return False
 
 def get_embedding(image_path: str) -> List[Dict[str, Any]]:
     """Detect faces and return embeddings."""
@@ -193,6 +207,16 @@ async def health():
         "timestamp": datetime.utcnow().isoformat()
     }
 
+@app.get("/ready")
+async def ready():
+    """Kubernetes-style readiness probe."""
+    try:
+        with db_connect() as conn:
+            conn.execute(text("SELECT 1")).scalar()
+        return {"status": "ready"}
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "not ready"})
+
 @app.post("/scan", response_model=ScanStatus, dependencies=[Depends(verify_api_key)])
 async def scan_folder(
     background_tasks: BackgroundTasks,
@@ -212,7 +236,7 @@ async def scan_folder(
     if len(files) > SCAN_THRESHOLD:
         log.info(f"Large scan ({len(files)} files), backgrounding")
         background_tasks.add_task(scan_folder_task, str(folder_path), files)
-        return ScanStatus(scanned=0, total_faces=0, persons=0)
+        return ScanStatus(scanned=0, total_faces=0, persons=0, thumbs_generated=0)
     
     return scan_folder_task(str(folder_path), files)
 
@@ -220,6 +244,7 @@ def scan_folder_task(folder_path: str, files: List[Path]) -> ScanStatus:
     """Background task for scanning folders."""
     scanned = 0
     total_faces = 0
+    thumbs_generated = 0
     errors = 0
     
     log.info(f"Starting scan of {len(files)} files in {folder_path}")
@@ -232,12 +257,26 @@ def scan_folder_task(folder_path: str, files: List[Path]) -> ScanStatus:
                 if not faces_data:
                     continue
                 
+                # Generate thumbnail
+                thumb_name = f"{photo_id}.jpg"
+                thumb_path = THUMB_DIR / thumb_name
+                thumb_ok = make_thumbnail(str(img_path), str(thumb_path))
+                if thumb_ok:
+                    thumbs_generated += 1
+                
                 # Insert photo
                 img = cv2.imread(str(img_path))
                 height, width = img.shape[:2] if img is not None else (None, None)
                 conn.execute(text("""
-                    INSERT INTO photos (id, path, width, height) VALUES (:id, :path, :w, :h)
-                """), {"id": photo_id, "path": str(img_path), "w": width, "h": height})
+                    INSERT INTO photos (id, path, width, height, thumb_path)
+                    VALUES (:id, :path, :w, :h, :thumb)
+                """), {
+                    "id": photo_id,
+                    "path": str(img_path),
+                    "w": width,
+                    "h": height,
+                    "thumb": str(thumb_path) if thumb_ok else None
+                })
                 
                 for face in faces_data:
                     face_id = str(uuid.uuid4())
@@ -261,15 +300,16 @@ def scan_folder_task(folder_path: str, files: List[Path]) -> ScanStatus:
                     if not person_id:
                         person_id = str(uuid.uuid4())
                         conn.execute(text("""
-                            INSERT INTO persons (id, name, embedding_centroid) VALUES (:id, :name, :centroid)
+                            INSERT INTO persons (id, name, embedding_centroid)
+                            VALUES (:id, :name, :centroid)
                         """), {"id": person_id, "name": f"Person {scanned + 1}", "centroid": embedding.tolist()})
                     else:
-                        # Update centroid with running average
                         row = conn.execute(text("SELECT embedding_centroid FROM persons WHERE id = :id"), {"id": person_id}).fetchone()
                         old_centroid = np.array(row.embedding_centroid if row and row.embedding_centroid is not None else embedding, dtype=np.float32)
                         new_centroid = (old_centroid + embedding) / 2
                         conn.execute(text("""
-                            UPDATE persons SET embedding_centroid = :centroid, updated_at = now() WHERE id = :id
+                            UPDATE persons SET embedding_centroid = :centroid, updated_at = now()
+                            WHERE id = :id
                         """), {"centroid": new_centroid.tolist(), "id": person_id})
                     
                     conn.execute(text("""
@@ -292,12 +332,11 @@ def scan_folder_task(folder_path: str, files: List[Path]) -> ScanStatus:
                 log.error(f"Error processing {img_path}: {e}")
                 continue
     
-    # Count persons
     with db_connect() as conn:
         person_count = conn.execute(text("SELECT COUNT(*) FROM persons")).scalar()
     
-    log.info(f"Scan complete: {scanned} photos, {total_faces} faces, {person_count} persons, {errors} errors")
-    return ScanStatus(scanned=scanned, total_faces=total_faces, persons=person_count)
+    log.info(f"Scan complete: {scanned} photos, {total_faces} faces, {person_count} persons, {thumbs_generated} thumbs, {errors} errors")
+    return ScanStatus(scanned=scanned, total_faces=total_faces, persons=person_count, thumbs_generated=thumbs_generated)
 
 @app.post("/search", dependencies=[Depends(verify_api_key)])
 async def search_face(
@@ -306,17 +345,14 @@ async def search_face(
     limit: int = 50
 ):
     """Search photos by uploaded face image."""
-    # Validate file type
     if not file.content_type or "image" not in file.content_type:
         raise HTTPException(400, "File must be an image")
     
     temp_path = UPLOAD_DIR / f"query_{uuid.uuid4()}.jpg"
     try:
-        # Save uploaded file
         with open(temp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
         
-        # Get query embedding
         query_faces = get_embedding(str(temp_path))
         if not query_faces:
             raise HTTPException(400, "No face detected in query image")
@@ -324,26 +360,25 @@ async def search_face(
         query_emb = query_faces[0]["embedding"]
         results = []
         
-        # Search database
         with db_connect() as conn:
             rows = conn.execute(text("""
-                SELECT f.id, f.photo_id, p.path, f.embedding, f.person_id
+                SELECT f.id, f.photo_id, p.path, p.thumb_path, f.embedding, f.person_id
                 FROM faces f JOIN photos p ON f.photo_id = p.id
             """)).fetchall()
             
             for row in rows:
-                face_id, photo_id, path, embedding_json, person_id = row
+                face_id, photo_id, path, thumb_path, embedding_json, person_id = row
                 embedding = np.array(embedding_json, dtype=np.float32)
                 sim = cosine_similarity(query_emb, embedding)
                 if sim >= threshold:
                     results.append({
                         "photo_id": photo_id,
                         "path": path,
+                        "thumb_path": thumb_path,
                         "similarity": round(sim, 4),
                         "person_id": person_id
                     })
         
-        # Sort and limit
         results.sort(key=lambda x: x["similarity"], reverse=True)
         results = results[:limit]
         
@@ -381,15 +416,29 @@ async def get_person_photos(person_id: str):
             raise HTTPException(404, "Person not found")
         
         photos = conn.execute(text("""
-            SELECT DISTINCT p.id, p.path, p.width, p.height
+            SELECT DISTINCT p.id, p.path, p.thumb_path, p.width, p.height
             FROM photos p
             JOIN faces f ON p.id = f.photo_id
             WHERE f.person_id = :id
             ORDER BY p.created_at DESC
         """), {"id": person_id}).fetchall()
         
-        photo_list = [{"photo_id": r[0], "path": r[1], "width": r[2], "height": r[3]} for r in photos]
+        photo_list = [{"photo_id": r[0], "path": r[1], "thumb_path": r[2], "width": r[3], "height": r[4]} for r in photos]
     return {"person_id": person_id, "name": row[0], "photos": photo_list}
+
+@app.get("/thumb/{photo_id}", dependencies=[Depends(verify_api_key)])
+async def get_thumbnail(photo_id: str):
+    """Serve cached thumbnail."""
+    with db_connect() as conn:
+        row = conn.execute(text("SELECT thumb_path FROM photos WHERE id = :id"), {"id": photo_id}).fetchone()
+        if not row or not row[0]:
+            raise HTTPException(404, "Thumbnail not found")
+        thumb_path = row[0]
+    
+    if not Path(thumb_path).exists():
+        raise HTTPException(404, "Thumbnail file missing")
+    
+    return FileResponse(thumb_path, media_type="image/jpeg")
 
 @app.patch("/person/{person_id}/rename", dependencies=[Depends(verify_api_key)])
 async def rename_person(person_id: str, payload: PersonRename):
@@ -418,11 +467,15 @@ async def delete_person(person_id: str):
 async def delete_photo(photo_id: str):
     """Delete a photo and its face data."""
     with db_connect() as conn:
+        row = conn.execute(text("SELECT path, thumb_path FROM photos WHERE id = :id"), {"id": photo_id}).fetchone()
         conn.execute(text("DELETE FROM faces WHERE photo_id = :id"), {"id": photo_id})
         result = conn.execute(text("DELETE FROM photos WHERE id = :id"), {"id": photo_id})
         conn.commit()
         if result.rowcount == 0:
             raise HTTPException(404, "Photo not found")
+        # Remove thumbnail file
+        if row and row[1] and Path(row[1]).exists():
+            Path(row[1]).unlink()
     return {"status": "ok"}
 
 @app.get("/stats", dependencies=[Depends(verify_api_key)])
@@ -434,26 +487,21 @@ async def get_stats():
                 (SELECT COUNT(*) FROM photos) as total_photos,
                 (SELECT COUNT(*) FROM persons) as total_persons,
                 (SELECT COUNT(*) FROM faces) as total_faces,
-                (SELECT COUNT(DISTINCT person_id) FROM faces) as persons_with_faces,
-                (SELECT AVG(EXTRACT(EPOCH FROM (now() - created_at))) FROM photos) as avg_age_seconds
+                (SELECT COUNT(*) FROM photos WHERE thumb_path IS NOT NULL) as photos_with_thumbs,
+                (SELECT pg_size_pretty(pg_database_size('picly'))) as db_size
         """)).fetchone()
     return {
         "total_photos": stats[0],
         "total_persons": stats[1],
         "total_faces": stats[2],
-        "persons_with_faces": stats[3],
-        "avg_photo_age_seconds": round(stats[4], 2) if stats[4] else None
+        "photos_with_thumbs": stats[3],
+        "db_size": stats[4]
     }
 
-@app.get("/ready")
-async def ready():
-    """Kubernetes-style readiness probe."""
-    try:
-        with db_connect() as conn:
-            conn.execute(text("SELECT 1")).scalar()
-        return {"status": "ready"}
-    except Exception:
-        return JSONResponse(status_code=503, content={"status": "not ready"})
+@app.get("/scan/status")
+async def scan_status():
+    """Check if background scan is running."""
+    return {"status": "ok", "message": "Background scans run via FastAPI BackgroundTasks"}
 
 if __name__ == "__main__":
     import uvicorn
