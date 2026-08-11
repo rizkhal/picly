@@ -49,6 +49,10 @@ export default function App() {
   const [authBusy, setAuthBusy] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
 
+  // Update state (Fase 3: in-app update banner)
+  const [updateInfo, setUpdateInfo] = useState<{ available: boolean; current?: string | null; latest?: string | null; url?: string | null; notes?: string[] | null; error?: string } | null>(null)
+  const [updateDismissed, setUpdateDismissed] = useState(false)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const driveFailures = useRef(0)
   const scansRef = useRef<ScanProgress[]>([])
@@ -114,6 +118,30 @@ export default function App() {
       setAuthStatus({ loggedIn: false, email: null })
     } catch (e) {
       console.error('Logout failed', e)
+    }
+  }
+
+  // Fase 3: check for an update on startup (backend serves the manifest)
+  const checkForUpdate = async (silent = false) => {
+    try {
+      const electronApi = (window as any).electron
+      if (!electronApi?.checkUpdate) return
+      const res = await electronApi.checkUpdate()
+      setUpdateInfo(res || { available: false })
+      setUpdateDismissed(false)
+      if (!silent && res?.error) console.warn('Update check failed:', res.error)
+    } catch (e) {
+      if (!silent) console.warn('Update check failed', e)
+    }
+  }
+
+  const openUpdatePage = async () => {
+    if (!updateInfo?.url) return
+    try {
+      const electronApi = (window as any).electron
+      await electronApi?.openUpdate?.(updateInfo.url)
+    } catch (e) {
+      console.error('Failed to open update page', e)
     }
   }
 
@@ -326,6 +354,7 @@ export default function App() {
     loadPersons()
     loadFolders()
     loadAuthStatus()
+    checkForUpdate(true)
     recoverScans()
   }, [])
 
@@ -600,6 +629,24 @@ export default function App() {
 
       {/* Main content */}
       <div className="main">
+        {/* Update banner — a newer release is available (v1: opens GitHub in browser) */}
+        {updateInfo?.available && !updateDismissed && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', background: 'linear-gradient(135deg, #1a3a5c, #2d5a8a)', borderBottom: '1px solid rgba(255,255,255,0.1)', fontSize: 13 }}>
+            <div style={{ flex: 1 }}>
+              <strong>Update tersedia — Picly {updateInfo.latest}</strong>
+              {updateInfo.current && <span style={{ opacity: 0.7, marginLeft: 8 }}>(kamu punya {updateInfo.current})</span>}
+            </div>
+            <button
+              onClick={openUpdatePage}
+              style={{ padding: '6px 14px', borderRadius: 6, background: '#fff', border: 'none', color: '#1a3a5c', fontWeight: 600, cursor: 'pointer', fontSize: 12 }}
+            >Update</button>
+            <button
+              onClick={() => setUpdateDismissed(true)}
+              style={{ padding: 6, borderRadius: 6, background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 13 }}
+              title="Tutup"
+            >✕</button>
+          </div>
+        )}
         {/* Scan progress banner — prominent, above the toolbar */}
         {activeScans.length > 0 && (
           <div className="scan-progress">

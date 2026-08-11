@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -258,6 +258,13 @@ ipcMain.handle('app:check-update', async () => {
   } catch (e) {
     return { available: false, error: String(e && e.message ? e.message : e) };
   }
+});
+
+// Open the release page in the system browser (v1: no auto-download).
+ipcMain.handle('app:open-update', async (_e, url) => {
+  if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return { ok: false, error: 'invalid_url' };
+  await shell.openExternal(url);
+  return { ok: true };
 });
 
 registerLocalIpc();

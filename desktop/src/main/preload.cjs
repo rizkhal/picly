@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electron', {
 
   // In-app update check (backend serves the release manifest)
   checkUpdate: () => ipcRenderer.invoke('app:check-update'),
+  openUpdate: (url) => ipcRenderer.invoke('app:open-update', url),
 
   // Auth (account/entitlement — tokens stay in main via safeStorage)
   auth: {
