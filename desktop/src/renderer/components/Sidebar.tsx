@@ -173,14 +173,14 @@ export function Sidebar(props: SidebarProps) {
                 </div>
                 <div className="row-actions">
                   <button
-                    className="row-action-btn"
+                    className="row-action-btn rescan-btn"
                     title="Re-scan folder (tambah baru, hapus yang hilang)"
                     onClick={(e) => { e.stopPropagation(); onRescanFolder(folder) }}
                   >
                     <ArrowClockwise size={13} />
                   </button>
                   <button
-                    className="row-action-btn"
+                    className="row-action-btn delete-btn"
                     title="Remove folder and its indexed photos"
                     onClick={(e) => { e.stopPropagation(); onRemoveFolder(folder) }}
                   >

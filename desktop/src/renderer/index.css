@@ -162,6 +162,8 @@ html, body, #root {
 
 .nav-item .disk-info { min-width: 0; }
 .nav-item .disk-info .disk-space { margin-top: 0; }
+/* Slightly brighter than the default muted for folder row metadata */
+.nav-item .disk-info .disk-space { color: #9ca3af; }
 
 .sidebar-divider {
   height: 1px;
@@ -1117,7 +1119,7 @@ html, body, #root {
   display: none;
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: var(--text);
   cursor: pointer;
   padding: 3px;
   border-radius: 5px;
@@ -1127,8 +1129,20 @@ html, body, #root {
 
 .nav-item:hover .row-action-btn { display: inline-flex; }
 .nav-item .row-action-btn:hover {
-  color: var(--danger);
-  background: rgba(239, 68, 68, 0.12);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+/* Rescan (refresh) button — orange tint, distinct from delete */
+.nav-item .row-action-btn.rescan-btn { color: #f97316; }
+.nav-item .row-action-btn.rescan-btn:hover {
+  color: #fff;
+  background: #f97316;
+}
+/* Delete button — danger tint, distinct from rescan */
+.nav-item .row-action-btn.delete-btn { color: var(--danger); }
+.nav-item .row-action-btn.delete-btn:hover {
+  color: #fff;
+  background: var(--danger);
 }
 
 /* Inline spinner inside the "+ Add folder" text button while scanning */
