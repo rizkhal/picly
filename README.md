@@ -134,6 +134,10 @@ bun run cluster:test   # 6 LFW people x 4 photos: cluster purity + coverage
 bun run parity:cluster # dump assignments; diff vs services/face-search/scripts/parity_cluster.py
 ```
 
+Search is **multi-face**: a query photo with several people searches with ALL
+faces, results are deduped per photo (ranked by best match), and each hit shows
+the distinct persons matched (`matchedPersons`).
+
 Clustering is byte-for-byte parity with the Python backend (27/28 face
 assignments identical on the parity set; the 1 remaining flip is a near-threshold
 0.6 decision, expected from the accepted sub-pixel warp differences).

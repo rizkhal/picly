@@ -54,24 +54,25 @@ function toHitView(h) {
         personId: h.personId,
         personName: h.personName,
         similarity: h.similarity,
+        matchedPersons: h.matchedPersons ?? [],
     };
 }
-/** Detect faces in a query photo and search the library with the first face. */
+/** Detect faces in a query photo and search the library with ALL of them. */
 async function searchPhoto(services, photoPath, limit = 10) {
     const analysis = await services.getAnalysis();
     const img = await (0, image_1.decodeRgb)(photoPath);
     const faces = await analysis.detectFromImage(img);
     if (faces.length === 0)
         return { facesDetected: 0, hits: [] };
-    const hits = services.store.searchFaces(faces[0].embedding, limit);
+    const hits = services.store.searchFaces(faces.map((f) => f.embedding), limit);
     return { facesDetected: faces.length, hits: hits.map(toHitView) };
 }
-/** Search using an already-stored photo's embedding (no re-detect). */
+/** Search using an already-stored photo's embeddings (no re-detect). */
 function searchStoredPhoto(services, photoId, limit = 10) {
     const faces = services.store.facesForPhoto(photoId);
     if (faces.length === 0)
         return { facesDetected: 0, hits: [] };
-    const hits = services.store.searchFaces(faces[0], limit);
+    const hits = services.store.searchFaces(faces, limit);
     return { facesDetected: faces.length, hits: hits.map(toHitView) };
 }
 function listPhotos(services, folderPath, limit = 500, offset = 0) {

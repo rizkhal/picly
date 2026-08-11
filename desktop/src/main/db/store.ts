@@ -40,6 +40,8 @@ export interface SearchHit {
   personId: string | null
   personName: string | null
   similarity: number
+  /** Distinct persons matched by any query face in this photo. */
+  matchedPersons: string[]
 }
 
 interface FaceCacheRow {
@@ -276,32 +278,71 @@ export class PhotoStore {
 
   // ----------------------------------------------------------------- search
 
-  /** Brute-force cosine search over all stored face embeddings (typed-array cache). */
-  searchFaces(embedding: Float32Array, limit = 10, minSim = SEARCH_MIN_SIM): SearchHit[] {
+  /**
+   * Multi-face cosine search.
+   *
+   * Accepts ONE or MORE query embeddings (all faces in a query photo) and
+   * returns per-PHOTO results (deduped), ranked by the best (max) similarity
+   * across all query faces. Each hit carries the matched person for that face
+   * plus every distinct person matched in the photo.
+   *
+   * @param embeddings   one or more normalized query face embeddings
+   * @param limit        max photos to return
+   * @param minSim       per-face similarity cutoff
+   */
+  searchFaces(embeddings: Float32Array | Float32Array[], limit = 10, minSim = SEARCH_MIN_SIM): SearchHit[] {
+    const queries = Array.isArray(embeddings) ? embeddings : [embeddings]
+    if (queries.length === 0) return []
     const faces = this.loadFacesCache()
-    const scored: Array<{ face: FaceCacheRow; sim: number }> = []
-    for (const face of faces) {
-      const sim = cosine(embedding, face.embedding)
-      if (sim >= minSim) scored.push({ face, sim })
-    }
-    scored.sort((a, b) => b.sim - a.sim)
-    const top = scored.slice(0, limit)
+
+    // photoId -> best sim across all query faces (photo-level ranking)
+    const bestByPhoto = new Map<string, number>()
+    // photoId -> best (faceId, sim, personId, personName) for the top sim
+    const bestHitByPhoto = new Map<string, SearchHit>()
+    // photoId -> set of distinct person names matched by ANY query face
+    const personsByPhoto = new Map<string, Set<string>>()
 
     const getPhoto = this.db.prepare(`SELECT id AS photoId, path, thumb_path AS thumbPath FROM photos WHERE id = ?`)
     const getPerson = this.db.prepare(`SELECT id AS personId, name FROM persons WHERE id = ?`)
-    return top.map(({ face, sim }) => {
-      const photo = getPhoto.get(face.photoId) as { photoId: string; path: string; thumbPath: string | null }
-      const person = face.personId ? (getPerson.get(face.personId) as { personId: string; name: string } | undefined) : undefined
-      return {
-        faceId: face.faceId,
-        photoId: face.photoId,
-        path: photo.path,
-        thumbPath: photo.thumbPath,
-        personId: person?.personId ?? null,
-        personName: person?.name ?? null,
-        similarity: sim,
+
+    for (const query of queries) {
+      for (const face of faces) {
+        const sim = cosine(query, face.embedding)
+        if (sim < minSim) continue
+
+        if (!personsByPhoto.has(face.photoId)) personsByPhoto.set(face.photoId, new Set())
+        if (face.personId) {
+          const person = getPerson.get(face.personId) as { personId: string; name: string } | undefined
+          if (person) personsByPhoto.get(face.photoId)!.add(person.name)
+        }
+
+        const prev = bestByPhoto.get(face.photoId) ?? -1
+        if (sim <= prev) continue
+        bestByPhoto.set(face.photoId, sim)
+        const photo = getPhoto.get(face.photoId) as { photoId: string; path: string; thumbPath: string | null }
+        const person = face.personId ? (getPerson.get(face.personId) as { personId: string; name: string } | undefined) : undefined
+        bestHitByPhoto.set(face.photoId, {
+          faceId: face.faceId,
+          photoId: face.photoId,
+          path: photo.path,
+          thumbPath: photo.thumbPath,
+          personId: person?.personId ?? null,
+          personName: person?.name ?? null,
+          similarity: sim,
+          matchedPersons: [] as string[], // filled below
+        })
       }
-    })
+    }
+
+    const top = [...bestHitByPhoto.values()]
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, limit)
+
+    // Attach the full matched-persons list per photo
+    for (const hit of top) {
+      hit.matchedPersons = [...(personsByPhoto.get(hit.photoId) ?? new Set())]
+    }
+    return top
   }
 
   /** Per-face photo -> person assignment, ordered by photo path (parity dumps). */

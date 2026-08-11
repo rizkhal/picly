@@ -68,6 +68,8 @@ export interface HitView {
   personId: string | null
   personName: string | null
   similarity: number
+  /** Distinct persons matched by any query face in this photo. */
+  matchedPersons: string[]
 }
 
 export interface SearchView {
@@ -83,24 +85,28 @@ function toHitView(h: SearchHit): HitView {
     personId: h.personId,
     personName: h.personName,
     similarity: h.similarity,
+    matchedPersons: h.matchedPersons ?? [],
   }
 }
 
-/** Detect faces in a query photo and search the library with the first face. */
+/** Detect faces in a query photo and search the library with ALL of them. */
 export async function searchPhoto(services: LocalServices, photoPath: string, limit = 10): Promise<SearchView> {
   const analysis = await services.getAnalysis()
   const img = await decodeRgb(photoPath)
   const faces = await analysis.detectFromImage(img)
   if (faces.length === 0) return { facesDetected: 0, hits: [] }
-  const hits = services.store.searchFaces(faces[0].embedding, limit)
+  const hits = services.store.searchFaces(
+    faces.map((f) => f.embedding),
+    limit,
+  )
   return { facesDetected: faces.length, hits: hits.map(toHitView) }
 }
 
-/** Search using an already-stored photo's embedding (no re-detect). */
+/** Search using an already-stored photo's embeddings (no re-detect). */
 export function searchStoredPhoto(services: LocalServices, photoId: string, limit = 10): SearchView {
   const faces = services.store.facesForPhoto(photoId)
   if (faces.length === 0) return { facesDetected: 0, hits: [] }
-  const hits = services.store.searchFaces(faces[0], limit)
+  const hits = services.store.searchFaces(faces, limit)
   return { facesDetected: faces.length, hits: hits.map(toHitView) }
 }
 

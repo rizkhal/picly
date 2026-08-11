@@ -21,7 +21,7 @@ const multipartHeaders = () => ({
 })
 
 type Person = { person_id: string; name: string; photo_count: number }
-type Photo = { photo_id: string; path: string; thumb_path?: string; similarity?: number; person_id?: string; face_id?: string }
+type Photo = { photo_id: string; path: string; thumb_path?: string; similarity?: number; person_id?: string; person_name?: string; face_id?: string; matched_persons?: string[] }
 type Disk = { name: string; path: string; free_gb?: number; total_gb?: number }
 type Folder = { folder_id: string; host_path: string; container_path: string; name: string; photo_count: number; available: boolean }
 type ScanProgress = {
@@ -51,6 +51,8 @@ export default function App() {
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [driveStatus, setDriveStatus] = useState('Checking...')
   const [searchFile, setSearchFile] = useState<File | null>(null)
+  const [searchFacesDetected, setSearchFacesDetected] = useState<number | null>(null)
+  const [searchMatchedPersons, setSearchMatchedPersons] = useState<string[]>([])
   const [selectedView, setSelectedView] = useState<string>('recents')
   const [disks, setDisks] = useState<Disk[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
@@ -117,21 +119,42 @@ export default function App() {
     }
   }
 
-  // Search face
+  // Search face — full local: detect ALL faces in the query photo, dedup per photo
   const searchFace = async () => {
     if (!searchFile) return
     setLoading(true)
     try {
-      const form = new FormData()
-      form.append('file', searchFile)
-      form.append('threshold', '0.5')
-      form.append('limit', '50')
-      const res = await fetch(`${API_BASE}/search`, { method: 'POST', headers: multipartHeaders(), body: form })
-      const data = await res.json()
-      setPhotos(data.results || [])
+      const electronApi = (window as any).electron
+      if (electronApi?.local?.searchPhoto) {
+        const filePath = (searchFile as any).path
+        const data = await electronApi.local.searchPhoto(filePath)
+        setPhotos((data.hits || []).map((h: any) => ({
+          photo_id: h.photoId,
+          path: h.path,
+          thumb_path: h.thumbUrl,
+          similarity: h.similarity,
+          person_id: h.personId,
+          person_name: h.personName,
+          matched_persons: h.matchedPersons || [],
+        })))
+        setSearchFacesDetected(data.facesDetected ?? null)
+        setSearchMatchedPersons((data.hits || []).flatMap((h: any) => h.matchedPersons || []))
+      } else {
+        // Fallback: legacy API path (no local services)
+        const form = new FormData()
+        form.append('file', searchFile)
+        form.append('threshold', '0.5')
+        form.append('limit', '50')
+        const res = await fetch(`${API_BASE}/search`, { method: 'POST', headers: multipartHeaders(), body: form })
+        const data = await res.json()
+        setPhotos(data.results || [])
+        setSearchFacesDetected(null)
+        setSearchMatchedPersons([])
+      }
       setSelectedPerson(null)
       setSelectedDisk(null)
       setSelectedFolder(null)
+      setSelectedView('')
     } catch (e) {
       console.error('Search failed', e)
     } finally {
@@ -708,37 +731,58 @@ export default function App() {
               <p>Scan a folder or search by face to get started.</p>
             </div>
           ) : (
-            <div className="photo-grid">
-              {photos.map((photo) => (
-                <div
-                  key={photo.photo_id}
-                  className="photo-card"
-                  onClick={() => setSelectedPhoto(photo)}
-                >
-                  <img
-                    src={`${API_BASE}/thumb/${photo.photo_id}`}
-                    alt=""
-                    loading="lazy"
-                  />
-                  {photo.face_id && (
+            <>
+              {searchFacesDetected !== null && (
+                <div className="search-summary">
+                  <span className="search-summary-title">
+                    {searchFacesDetected} face{searchFacesDetected === 1 ? '' : 's'} detected
+                  </span>
+                  {searchMatchedPersons.length > 0 && (
+                    <span className="search-summary-persons">
+                      {[...new Set(searchMatchedPersons)].map((name) => (
+                        <span key={name} className="matched-person-chip">{name}</span>
+                      ))}
+                    </span>
+                  )}
+                </div>
+              )}
+              <div className="photo-grid">
+                {photos.map((photo) => (
+                  <div
+                    key={photo.photo_id}
+                    className="photo-card"
+                    onClick={() => setSelectedPhoto(photo)}
+                  >
                     <img
-                      className="face-overlay"
-                      src={`${API_BASE}/face/${photo.face_id}`}
+                      src={`${API_BASE}/thumb/${photo.photo_id}`}
                       alt=""
                       loading="lazy"
                     />
-                  )}
-                  {photo.similarity !== undefined && (
-                    <div className="similarity">{Math.round(photo.similarity * 100)}%</div>
-                  )}
-                  {photo.person_id && (
-                    <div className="person-badge">
-                      {persons.find(p => p.person_id === photo.person_id)?.name || 'Unknown'}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                    {photo.face_id && (
+                      <img
+                        className="face-overlay"
+                        src={`${API_BASE}/face/${photo.face_id}`}
+                        alt=""
+                        loading="lazy"
+                      />
+                    )}
+                    {photo.similarity !== undefined && (
+                      <div className="similarity">{Math.round(photo.similarity * 100)}%</div>
+                    )}
+                    {photo.person_id && (
+                      <div className="person-badge">
+                        {persons.find(p => p.person_id === photo.person_id)?.name || 'Unknown'}
+                      </div>
+                    )}
+                    {photo.matched_persons && photo.matched_persons.length > 0 && (
+                      <div className="matched-persons-badge">
+                        {photo.matched_persons.join(' · ')}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       </div>
