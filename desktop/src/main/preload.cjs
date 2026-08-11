@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('electron', {
   // In-app update check (backend serves the release manifest)
   checkUpdate: () => ipcRenderer.invoke('app:check-update'),
   openUpdate: (url) => ipcRenderer.invoke('app:open-update', url),
+  // Reveal the original file in the system file manager (Finder/Explorer)
+  showItem: (filePath) => ipcRenderer.invoke('app:show-item', filePath),
 
   // Auth (account/entitlement — tokens stay in main via safeStorage)
   auth: {
@@ -27,6 +29,7 @@ contextBridge.exposeInMainWorld('electron', {
     listPhotos: (folderPath) => ipcRenderer.invoke('local:list-photos', folderPath),
     listPersonPhotos: (personId) => ipcRenderer.invoke('local:list-person-photos', personId),
     listPersonPreviews: (ids) => ipcRenderer.invoke('local:list-person-previews', ids),
+    photoFaces: (photoId) => ipcRenderer.invoke('local:photo-faces', photoId),
     renamePerson: (personId, name) => ipcRenderer.invoke('local:rename-person', personId, name),
     deleteFolder: (hostPath) => ipcRenderer.invoke('local:delete-folder', hostPath),
     deletePhoto: (photoId) => ipcRenderer.invoke('local:delete-photo', photoId),

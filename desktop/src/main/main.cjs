@@ -153,6 +153,11 @@ function registerLocalIpc() {
     const local = getLocalServices();
     return require('../../dist-main/local.js').listPersonPreviews(local, ids || []);
   });
+
+  ipcMain.handle('local:photo-faces', (_e, photoId) => {
+    const local = getLocalServices();
+    return require('../../dist-main/local.js').photoFaces(local, photoId);
+  });
   ipcMain.handle('local:delete-photo', (_e, photoId) => {
     getLocalServices().store.deletePhoto(photoId);
     return true;
@@ -201,6 +206,20 @@ function registerLocalIpc() {
 }
 
 // --- Auth IPC (Fase 2: desktop auth) ---
+
+// --- App utility IPC (open original in Finder etc) ---
+function registerAppIpc() {
+  ipcMain.handle('app:show-item', (_e, filePath) => {
+    try {
+      if (typeof filePath !== 'string' || !filePath) return false;
+      shell.showItemInFolder(filePath);
+      return true;
+    } catch (e) {
+      console.error('showItemInFolder failed:', e);
+      return false;
+    }
+  });
+}
 
 const authClient = require('./auth-client.cjs');
 
@@ -288,3 +307,4 @@ ipcMain.handle('app:open-update', async (_e, url) => {
 });
 
 registerLocalIpc();
+registerAppIpc();
