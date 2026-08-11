@@ -9,6 +9,15 @@ contextBridge.exposeInMainWorld('electron', {
   // In-app update check (backend serves the release manifest)
   checkUpdate: () => ipcRenderer.invoke('app:check-update'),
 
+  // Auth (account/entitlement — tokens stay in main via safeStorage)
+  auth: {
+    status: () => ipcRenderer.invoke('auth:status'),
+    register: (email, password) => ipcRenderer.invoke('auth:register', email, password),
+    login: (email, password) => ipcRenderer.invoke('auth:login', email, password),
+    logout: () => ipcRenderer.invoke('auth:logout'),
+    getAccessToken: () => ipcRenderer.invoke('auth:get-access-token'),
+  },
+
   // Local services (SQLite store + ONNX pipeline, no backend needed)
   local: {
     stats: () => ipcRenderer.invoke('local:stats'),

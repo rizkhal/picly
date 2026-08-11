@@ -41,6 +41,14 @@ export default function App() {
   const [personPreviews, setPersonPreviews] = useState<Array<{ person_id: string; name: string; photo_count: number; face_id?: string }>>([])
   const [activeScans, setActiveScans] = useState<ScanProgress[]>([])
 
+  // Auth state (Fase 2: account/entitlement — local features don't require it)
+  const [authStatus, setAuthStatus] = useState<{ loggedIn: boolean; email: string | null }>({ loggedIn: false, email: null })
+  const [authModal, setAuthModal] = useState<'login' | 'register' | null>(null)
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const driveFailures = useRef(0)
   const scansRef = useRef<ScanProgress[]>([])
@@ -58,6 +66,54 @@ export default function App() {
       }
     } catch (e) {
       console.error('Failed to load disks', e)
+    }
+  }
+
+  // Auth — load persisted status on mount
+  const loadAuthStatus = async () => {
+    try {
+      const electronApi = (window as any).electron
+      const s = await electronApi?.auth?.status()
+      if (s) setAuthStatus({ loggedIn: !!s.loggedIn, email: s.email || null })
+    } catch (e) {
+      console.error('Failed to load auth status', e)
+    }
+  }
+
+  const submitAuth = async (mode: 'login' | 'register') => {
+    if (!authEmail || !authPassword) {
+      setAuthError('Email dan password wajib diisi.')
+      return
+    }
+    setAuthBusy(true)
+    setAuthError(null)
+    try {
+      const electronApi = (window as any).electron
+      const res = mode === 'login'
+        ? await electronApi.auth.login(authEmail, authPassword)
+        : await electronApi.auth.register(authEmail, authPassword)
+      if (res?.ok) {
+        setAuthStatus({ loggedIn: true, email: res.email || authEmail })
+        setAuthModal(null)
+        setAuthEmail('')
+        setAuthPassword('')
+      } else {
+        setAuthError(res?.error || 'Gagal. Coba lagi.')
+      }
+    } catch (e: any) {
+      setAuthError(e?.message || String(e))
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    try {
+      const electronApi = (window as any).electron
+      await electronApi?.auth?.logout()
+      setAuthStatus({ loggedIn: false, email: null })
+    } catch (e) {
+      console.error('Logout failed', e)
     }
   }
 
@@ -269,6 +325,7 @@ export default function App() {
     loadDisks()
     loadPersons()
     loadFolders()
+    loadAuthStatus()
     recoverScans()
   }, [])
 
@@ -511,6 +568,32 @@ export default function App() {
           <div className="sidebar-footer">
             <div>Status: {driveStatus}</div>
             <div style={{ marginTop: 4 }}>{persons.length} persons indexed</div>
+            {/* Account (auth — optional, entitlement only) */}
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              {authStatus.loggedIn ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: 12, opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {authStatus.email}
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    style={{ fontSize: 11, background: 'none', border: 'none', color: '#8b8b8b', cursor: 'pointer', padding: 0 }}
+                    title="Log out"
+                  >Logout</button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    onClick={() => { setAuthModal('login'); setAuthError(null) }}
+                    style={{ flex: 1, fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#e8e8e8', cursor: 'pointer' }}
+                  >Login</button>
+                  <button
+                    onClick={() => { setAuthModal('register'); setAuthError(null) }}
+                    style={{ flex: 1, fontSize: 12, padding: '4px 8px', borderRadius: 6, background: 'none', border: '1px solid #3a3a3a', color: '#8b8b8b', cursor: 'pointer' }}
+                  >Register</button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -767,6 +850,66 @@ export default function App() {
               >
                 Delete photo
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Auth modal — login / register (account is optional; local features don't require it) */}
+      {authModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setAuthModal(null)}>
+          <div
+            style={{ background: '#1e1e1e', border: '1px solid #333', borderRadius: 12, padding: 24, width: 340, boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>
+              {authModal === 'login' ? 'Masuk' : 'Buat Akun'}
+            </div>
+            <div style={{ fontSize: 12, color: '#8b8b8b', marginBottom: 16 }}>
+              Akun untuk entitlement & update. Foto tetap 100% lokal di device ini.
+            </div>
+
+            <label style={{ fontSize: 12, color: '#a0a0a0', display: 'block', marginBottom: 4 }}>Email</label>
+            <input
+              type="email"
+              value={authEmail}
+              onChange={(e) => setAuthEmail(e.target.value)}
+              placeholder="kamu@email.com"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, background: '#141414', border: '1px solid #3a3a3a', color: '#e8e8e8', fontSize: 14, marginBottom: 12, outline: 'none' }}
+            />
+
+            <label style={{ fontSize: 12, color: '#a0a0a0', display: 'block', marginBottom: 4 }}>Password</label>
+            <input
+              type="password"
+              value={authPassword}
+              onChange={(e) => setAuthPassword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !authBusy) submitAuth(authModal) }}
+              placeholder="Minimal 8 karakter"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, background: '#141414', border: '1px solid #3a3a3a', color: '#e8e8e8', fontSize: 14, marginBottom: 12, outline: 'none' }}
+            />
+
+            {authError && (
+              <div style={{ fontSize: 12, color: '#e5484d', marginBottom: 10 }}>{authError}</div>
+            )}
+
+            <button
+              onClick={() => submitAuth(authModal)}
+              disabled={authBusy}
+              style={{ width: '100%', padding: '10px', borderRadius: 8, background: '#4a7cff', border: 'none', color: '#fff', fontSize: 14, fontWeight: 600, cursor: authBusy ? 'default' : 'pointer', opacity: authBusy ? 0.6 : 1 }}
+            >
+              {authBusy ? 'Memproses…' : authModal === 'login' ? 'Masuk' : 'Daftar'}
+            </button>
+
+            <div style={{ marginTop: 12, fontSize: 12, textAlign: 'center', color: '#8b8b8b' }}>
+              {authModal === 'login' ? (
+                <>Belum punya akun?{' '}
+                  <span style={{ color: '#4a7cff', cursor: 'pointer' }} onClick={() => { setAuthModal('register'); setAuthError(null) }}>Daftar</span>
+                </>
+              ) : (
+                <>Sudah punya akun?{' '}
+                  <span style={{ color: '#4a7cff', cursor: 'pointer' }} onClick={() => { setAuthModal('login'); setAuthError(null) }}>Masuk</span>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -180,6 +180,61 @@ function registerLocalIpc() {
   });
 }
 
+// --- Auth IPC (Fase 2: desktop auth) ---
+
+const authClient = require('./auth-client.cjs');
+
+function registerAuthIpc() {
+  ipcMain.handle('auth:status', () => {
+    const tokens = authClient.loadTokens();
+    return authClient.getStatus(tokens);
+  });
+
+  ipcMain.handle('auth:register', async (_e, email, password) => {
+    try {
+      const json = await authClient.api('/auth/register', { method: 'POST', body: { email, password } });
+      authClient.saveTokens({ accessToken: json.accessToken, refreshToken: json.refreshToken, email: json.user.email });
+      return { ok: true, email: json.user.email };
+    } catch (e) {
+      return { ok: false, error: e.message || String(e) };
+    }
+  });
+
+  ipcMain.handle('auth:login', async (_e, email, password) => {
+    try {
+      const json = await authClient.api('/auth/login', { method: 'POST', body: { email, password } });
+      authClient.saveTokens({ accessToken: json.accessToken, refreshToken: json.refreshToken, email: json.user.email });
+      return { ok: true, email: json.user.email };
+    } catch (e) {
+      return { ok: false, error: e.message || String(e) };
+    }
+  });
+
+  ipcMain.handle('auth:logout', async () => {
+    const tokens = authClient.loadTokens();
+    if (tokens?.refreshToken) {
+      try { await authClient.api('/auth/logout', { method: 'POST', body: { refreshToken: tokens.refreshToken } }); } catch { /* best-effort */ }
+    }
+    authClient.clearTokens();
+    return { ok: true };
+  });
+
+  // Renderer requests a fresh access token for authenticated API calls
+  ipcMain.handle('auth:get-access-token', async () => {
+    const tokens = authClient.loadTokens();
+    if (!tokens) return { ok: false, error: 'not_logged_in' };
+    try {
+      const fresh = await authClient.refreshAccessToken(tokens);
+      return { ok: true, accessToken: fresh.accessToken };
+    } catch (e) {
+      authClient.clearTokens();
+      return { ok: false, error: e.message || String(e) };
+    }
+  });
+}
+
+registerAuthIpc();
+
 // API-based IPC (legacy — kept for in-app update checks later)
 ipcMain.handle('get-api-base', () => API_BASE);
 ipcMain.handle('list-disks', () => listHostDisks());
