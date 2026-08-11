@@ -9,6 +9,11 @@ import { makeThumbnail, THUMB_SIZE } from './thumb'
 export const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.webp'])
 const HASH_CHUNK = 64 * 1024
 
+/** True for macOS AppleDouble sidecar files (dot-underscore prefix). */
+function isAppleDouble(name: string): boolean {
+  return name.startsWith('._')
+}
+
 export interface ScanProgress {
   scanId: string
   folder: string
@@ -78,7 +83,11 @@ export function collectImages(root: string): string[] {
       const full = path.join(dir, e.name)
       if (e.isDirectory()) {
         walk(full)
-      } else if (e.isFile() && IMAGE_EXTS.has(path.extname(e.name).toLowerCase())) {
+      } else if (
+        e.isFile() &&
+        !isAppleDouble(e.name) &&
+        IMAGE_EXTS.has(path.extname(e.name).toLowerCase())
+      ) {
         out.push(full)
       }
     }
@@ -125,6 +134,7 @@ export async function scanFolder(
     progress.processed += 1
     progress.currentFile = filePath
     emit()
+    if (isAppleDouble(path.basename(filePath))) continue // macOS sidecar, not an image
     try {
       // Content-hash dedup (same bytes, different paths)
       const hash = await contentHash(filePath)
