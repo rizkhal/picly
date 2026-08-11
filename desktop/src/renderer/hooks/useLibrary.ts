@@ -44,13 +44,13 @@ export function useLibrary() {
     setPersonPreviews(previews)
   }, [])
 
-  // Fetch one face box per photo when a person filter is active (grid highlight).
+  // Fetch the face box per photo when a person filter is active (grid highlight).
+  // One batched IPC call — no per-photo round trips and no cap on photo count.
   const loadGridFaceBoxes = useCallback(async (personId: string, photos: Array<{ photo_id: string }>) => {
-    const boxes: Record<string, FaceBox | null> = {}
-    for (const p of photos.slice(0, 200)) {
-      const fb = await ipc.local.faceBoxForPhoto(personId, p.photo_id)
-      boxes[p.photo_id] = fb
-    }
+    const boxes = await ipc.local.faceBoxesForPerson(
+      personId,
+      photos.map((p) => p.photo_id),
+    )
     setGridFaceBoxes(boxes)
   }, [])
 

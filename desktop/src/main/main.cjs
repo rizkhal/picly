@@ -159,9 +159,9 @@ function registerLocalIpc() {
     return require('../../dist-main/local.js').photoFaces(local, photoId);
   });
 
-  ipcMain.handle('local:face-box-for-photo', (_e, personId, photoId) => {
+  ipcMain.handle('local:face-boxes-for-person', (_e, personId, photoIds) => {
     const local = getLocalServices();
-    return require('../../dist-main/local.js').faceBoxForPhoto(local, personId, photoId);
+    return require('../../dist-main/local.js').faceBoxesForPerson(local, personId, photoIds || []);
   });
   ipcMain.handle('local:delete-photo', (_e, photoId) => {
     getLocalServices().store.deletePhoto(photoId);

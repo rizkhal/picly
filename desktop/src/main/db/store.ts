@@ -442,23 +442,31 @@ export class PhotoStore {
     return rows.map((r) => blobToEmbedding(r.embedding))
   }
 
-  /** Single face box (first matching) for a photo, scoped to a person filter. */
-  faceBoxForPhoto(personId: string, photoId: string): { faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null; width: number | null; height: number | null } | null {
-    const row = this.db
+  /**
+   * Face boxes for MANY photos at once, scoped to a person filter — one query
+   * instead of N round-trips (the grid can have hundreds of photos). Returns a
+   * Map keyed by photo id (photos without a matching face are absent).
+   */
+  faceBoxesForPerson(personId: string, photoIds: string[]): Map<string, { faceId: string; x1: number; y1: number; x2: number; y2: number; width: number | null; height: number | null }> {
+    const boxes = new Map()
+    if (photoIds.length === 0) return boxes
+    const placeholders = photoIds.map(() => '?').join(',')
+    const rows = this.db
       .prepare(
-        `SELECT f.id AS faceId, f.x1, f.y1, f.x2, f.y2, f.person_id AS personId, per.name AS personName,
+        `SELECT f.photo_id AS photoId, f.id AS faceId, f.x1, f.y1, f.x2, f.y2,
                 p.width AS width, p.height AS height
          FROM faces f
-         LEFT JOIN persons per ON per.id = f.person_id
          JOIN photos p ON p.id = f.photo_id
-         WHERE f.person_id = ? AND f.photo_id = ?
-         ORDER BY f.created_at
-         LIMIT 1`,
+         WHERE f.person_id = ? AND f.photo_id IN (${placeholders})
+         ORDER BY f.created_at`,
       )
-      .get(personId, photoId) as
-      | { faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null; width: number | null; height: number | null }
-      | undefined
-    return row ?? null
+      .all(personId, ...photoIds) as Array<{ photoId: string; faceId: string; x1: number; y1: number; x2: number; y2: number; width: number | null; height: number | null }>
+    for (const r of rows) {
+      if (!boxes.has(r.photoId)) {
+        boxes.set(r.photoId, { faceId: r.faceId, x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2, width: r.width, height: r.height })
+      }
+    }
+    return boxes
   }
 
   /** Face boxes + person labels for a photo, for the detail-view overlay. */

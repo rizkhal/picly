@@ -87,16 +87,22 @@ export const local = {
     }
   },
 
-  async faceBoxForPhoto(personId: string, photoId: string): Promise<FaceBox | null> {
+  async faceBoxesForPerson(personId: string, photoIds: string[]): Promise<Record<string, FaceBox | null>> {
     const api = bridge()
-    if (!api?.local?.faceBoxForPhoto) return null
+    if (!api?.local?.faceBoxesForPerson || photoIds.length === 0) return {}
     try {
-      const fb = await api.local.faceBoxForPhoto(personId, photoId)
-      if (!fb) return null
-      return { x1: fb.x1, y1: fb.y1, x2: fb.x2, y2: fb.y2 }
+      const map = (await api.local.faceBoxesForPerson(personId, photoIds)) || {}
+      const out: Record<string, FaceBox | null> = {}
+      for (const [photoId, fb] of Object.entries(map)) {
+        const box = fb as { x1?: number; y1?: number; x2?: number; y2?: number } | null | undefined
+        if (box && box.x1 !== undefined && box.y1 !== undefined && box.x2 !== undefined && box.y2 !== undefined) {
+          out[photoId] = { x1: box.x1, y1: box.y1, x2: box.x2, y2: box.y2 }
+        }
+      }
+      return out
     } catch (e) {
-      console.error('faceBoxForPhoto failed', photoId, e)
-      return null
+      console.error('faceBoxesForPerson failed', personId, e)
+      return {}
     }
   },
 
