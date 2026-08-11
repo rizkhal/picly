@@ -33,3 +33,6 @@ uploads/
 
 # Local sample data
 /photos/
+
+# Desktop local database + thumbnails
+/desktop/data/
