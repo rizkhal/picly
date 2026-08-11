@@ -62,7 +62,12 @@ export function useLibrary() {
       setPhotos(rows)
       // Person scope also refreshes the grid face-highlight boxes (same as the
       // original inline flow — keep them in sync when the filter changes).
-      if (personId) loadGridFaceBoxes(personId, rows)
+      if (personId) {
+        loadGridFaceBoxes(personId, rows)
+      } else {
+        // Non-person scope: drop stale highlight boxes from the previous filter/search.
+        setGridFaceBoxes({})
+      }
     } catch (e) {
       console.error('Failed to load photos', e)
     } finally {
@@ -82,8 +87,20 @@ export function useLibrary() {
       similarity: h.similarity,
       person_id: h.personId || h.person_id,
       person_name: h.personName,
+      face_id: h.faceId || h.face_id,
       matched_persons: h.matchedPersons || [],
+      width: h.faceBox?.width ?? null,
+      height: h.faceBox?.height ?? null,
     }))
+    // Highlight the matched face on each hit (same rectangle the person filter
+    // uses) — the search hit already carries the box, no extra query needed.
+    const boxes: Record<string, FaceBox | null> = {}
+    for (const h of data.hits || []) {
+      if (h.faceBox && h.photoId) {
+        boxes[h.photoId] = { x1: h.faceBox.x1, y1: h.faceBox.y1, x2: h.faceBox.x2, y2: h.faceBox.y2 }
+      }
+    }
+    setGridFaceBoxes(boxes)
     return {
       photos,
       facesDetected: data.facesDetected ?? null,

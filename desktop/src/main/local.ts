@@ -76,6 +76,9 @@ export interface HitView {
   personId: string | null
   personName: string | null
   similarity: number
+  faceId: string
+  /** Bounding box of the matched face — for the grid rectangle highlight. */
+  faceBox: { x1: number; y1: number; x2: number; y2: number; width: number | null; height: number | null } | null
   /** Distinct persons matched by any query face in this photo. */
   matchedPersons: string[]
 }
@@ -93,6 +96,8 @@ function toHitView(h: SearchHit): HitView {
     personId: h.personId,
     personName: h.personName,
     similarity: h.similarity,
+    faceId: h.faceId,
+    faceBox: h.faceBox,
     matchedPersons: h.matchedPersons ?? [],
   }
 }

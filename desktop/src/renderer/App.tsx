@@ -105,10 +105,12 @@ export default function App() {
       setSelectedPerson(null)
       setSelectedFolder(null)
       setPhotos([])
+      setGridFaceBoxes({})
     } else {
       setSelectedDisk(diskPath)
       setSelectedPerson(null)
       setSelectedFolder(null)
+      setGridFaceBoxes({})
       loadPhotos(null, diskPath)
     }
   }
@@ -120,10 +122,12 @@ export default function App() {
       setSelectedPerson(null)
       setSelectedDisk(null)
       setPhotos([])
+      setGridFaceBoxes({})
     } else {
       setSelectedFolder(folder)
       setSelectedPerson(null)
       setSelectedDisk(null)
+      setGridFaceBoxes({})
       loadPhotos(null, null, folder.container_path)
     }
   }
@@ -133,6 +137,7 @@ export default function App() {
     const file = e.target.files?.[0]
     if (!file) return
     setLoading(true)
+    setGridFaceBoxes({}) // drop stale highlights from a previous person filter
     try {
       const res = await searchFace(file)
       setPhotos(res.photos)
@@ -328,7 +333,6 @@ export default function App() {
                   )}
                   <PhotoGrid
                     photos={photos}
-                    selectedPerson={selectedPerson}
                     gridFaceBoxes={gridFaceBoxes}
                     onOpenPhoto={openPhoto}
                   />

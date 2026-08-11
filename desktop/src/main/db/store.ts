@@ -50,6 +50,8 @@ export interface SearchHit {
   similarity: number
   /** Distinct persons matched by any query face in this photo. */
   matchedPersons: string[]
+  /** Bounding box of the matched face (for the grid rectangle highlight). */
+  faceBox: { x1: number; y1: number; x2: number; y2: number; width: number | null; height: number | null } | null
 }
 
 interface FaceCacheRow {
@@ -380,6 +382,11 @@ export class PhotoStore {
 
     const getPhoto = this.db.prepare(`SELECT id AS photoId, path, thumb_path AS thumbPath FROM photos WHERE id = ?`)
     const getPerson = this.db.prepare(`SELECT id AS personId, name FROM persons WHERE id = ?`)
+    const getFaceBox = this.db.prepare(
+      `SELECT f.x1, f.y1, f.x2, f.y2, p.width, p.height
+       FROM faces f JOIN photos p ON p.id = f.photo_id
+       WHERE f.id = ?`,
+    )
 
     for (const query of queries) {
       for (const face of faces) {
@@ -397,6 +404,7 @@ export class PhotoStore {
         bestByPhoto.set(face.photoId, sim)
         const photo = getPhoto.get(face.photoId) as { photoId: string; path: string; thumbPath: string | null }
         const person = face.personId ? (getPerson.get(face.personId) as { personId: string; name: string } | undefined) : undefined
+        const box = getFaceBox.get(face.faceId) as { x1: number; y1: number; x2: number; y2: number; width: number | null; height: number | null } | undefined
         bestHitByPhoto.set(face.photoId, {
           faceId: face.faceId,
           photoId: face.photoId,
@@ -406,6 +414,7 @@ export class PhotoStore {
           personName: person?.name ?? null,
           similarity: sim,
           matchedPersons: [] as string[], // filled below
+          faceBox: box ? { x1: box.x1, y1: box.y1, x2: box.x2, y2: box.y2, width: box.width, height: box.height } : null,
         })
       }
     }

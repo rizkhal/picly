@@ -3,12 +3,11 @@ import type { FaceBox, Photo } from '../types'
 
 type PhotoGridProps = {
   photos: Photo[]
-  selectedPerson: string | null
   gridFaceBoxes: Record<string, FaceBox | null>
   onOpenPhoto: (photo: Photo) => void
 }
 
-export function PhotoGrid({ photos, selectedPerson, gridFaceBoxes, onOpenPhoto }: PhotoGridProps) {
+export function PhotoGrid({ photos, gridFaceBoxes, onOpenPhoto }: PhotoGridProps) {
   return (
     <div className="photo-grid">
       {photos.map((photo) => (
@@ -22,7 +21,7 @@ export function PhotoGrid({ photos, selectedPerson, gridFaceBoxes, onOpenPhoto }
             alt=""
             loading="lazy"
           />
-          {selectedPerson && gridFaceBoxes[photo.photo_id] && (
+          {gridFaceBoxes[photo.photo_id] && (
             <div
               className="grid-face-box"
               style={{
@@ -31,14 +30,6 @@ export function PhotoGrid({ photos, selectedPerson, gridFaceBoxes, onOpenPhoto }
                 width: `${((gridFaceBoxes[photo.photo_id]!.x2 - gridFaceBoxes[photo.photo_id]!.x1) / (photo.width || 1)) * 100}%`,
                 height: `${((gridFaceBoxes[photo.photo_id]!.y2 - gridFaceBoxes[photo.photo_id]!.y1) / (photo.height || 1)) * 100}%`,
               }}
-            />
-          )}
-          {photo.face_id && (
-            <img
-              className="face-overlay"
-              src={`picly://face/${photo.face_id}.jpg`}
-              alt=""
-              loading="lazy"
             />
           )}
           {photo.similarity !== undefined && (
