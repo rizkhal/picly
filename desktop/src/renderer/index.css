@@ -717,7 +717,7 @@ html, body, #root {
 /* Scan progress — live per-folder bars, shown inside the sidebar's Scanning section.
    Items are styled like .nav-item (folder rows) so they share the same truncation
    behavior — name + status in .disk-info, actions on the right, bar below. */
-.scan-progress.sidebar {
+.scan-progress.scan-sidebar {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -785,9 +785,10 @@ html, body, #root {
 .progress-fill.done { background: var(--success); }
 .progress-fill.error { background: var(--danger); }
 .progress-fill.cancelled { background: var(--text-muted); }
+.progress-fill.paused { background: #f59e0b; }
 
-/* Stop/dismiss buttons on a scan row */
-.scan-stop-btn {
+/* Pause button on a running scan row */
+.scan-pause-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -803,7 +804,51 @@ html, body, #root {
   transition: background 0.15s, color 0.15s;
 }
 
-.scan-stop-btn:hover {
+.scan-pause-btn:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* Resume button on a paused scan row */
+.scan-resume-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(34, 197, 94, 0.14);
+  color: var(--success);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+
+.scan-resume-btn:hover {
+  background: var(--success);
+  color: #fff;
+}
+
+/* Delete a paused scan row (foto tetap tersimpan, cuma status dihapus) */
+.scan-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(239, 68, 68, 0.14);
+  color: var(--danger);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+
+.scan-delete-btn:hover {
   background: var(--danger);
   color: #fff;
 }
@@ -828,6 +873,11 @@ html, body, #root {
 .scan-dismiss-btn:hover {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text);
+}
+
+.scan-paused-line {
+  color: #f59e0b;
+  font-size: 11px;
 }
 
 /* Hover actions on sidebar rows (e.g. remove folder) */

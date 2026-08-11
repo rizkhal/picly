@@ -44,6 +44,9 @@ export interface ScanOptions {
   shouldCancel?: () => boolean
   /** Explicit file list; defaults to collectImages(folderPath). */
   files?: string[]
+  /** Skip files before scanning starts (e.g. already-indexed paths) so the
+   *  progress bar reflects only the remaining work. Path-based, cheap. */
+  filterFile?: (filePath: string) => boolean
 }
 
 const hasherPromise = xxhash()
@@ -104,7 +107,8 @@ export async function scanFolder(
 ): Promise<ScanSummary> {
   const started = Date.now()
   const scanId = `scan_${started}_${Math.random().toString(36).slice(2, 8)}`
-  const files = options.files ?? collectImages(folderPath)
+  const allFiles = options.files ?? collectImages(folderPath)
+  const files = options.filterFile ? allFiles.filter(options.filterFile) : allFiles
   const total = files.length
 
   const progress: ScanProgress = {
@@ -126,11 +130,15 @@ export async function scanFolder(
 
   let personCount = store.listPersons().length
   let cancelled = false
-  for (const filePath of files) {
+  const checkCancel = (): boolean => {
     if (options.shouldCancel?.()) {
       cancelled = true
-      break
+      return true
     }
+    return false
+  }
+  for (const filePath of files) {
+    if (checkCancel()) break
     progress.processed += 1
     progress.currentFile = filePath
     emit()
@@ -140,13 +148,18 @@ export async function scanFolder(
       const hash = await contentHash(filePath)
       if (store.hasPhotoHash(hash)) continue
       if (store.hasPhotoPath(filePath)) continue
+      if (checkCancel()) break // stop before the expensive detect
 
       const faces = await analysis.detect(filePath)
       if (faces.length === 0) continue
+      if (checkCancel()) break // stop before writing thumb/crops
 
       const photoId = randomUUID()
       const thumbPath = path.join(options.thumbDir, `${photoId}.jpg`)
       await makeThumbnail(filePath, thumbPath, THUMB_SIZE)
+      // No cancel check here: thumb + crops + DB row should commit together so
+      // we never leave orphan crops behind. Cancel before detect is the responsive
+      // stop point; once a file is past detect it finishes writing.
 
       // Assign stable face ids first so each crop file can share the face id name.
       const faceIds = faces.map(() => randomUUID())

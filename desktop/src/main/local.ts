@@ -56,6 +56,10 @@ export function startScan(
       thumbDir: services.config.thumbDir,
       onProgress,
       shouldCancel: () => cancelled,
+      // Resume-friendly: skip files already indexed under this folder so the
+      // progress bar starts from the remaining work, not the whole folder.
+      // (In-loop hash/path dedup in scanner.ts stays as a safety net.)
+      filterFile: (filePath) => !services.store.hasPhotoPath(filePath),
     })
   })()
   return { scanId, cancel: () => { cancelled = true }, done }
