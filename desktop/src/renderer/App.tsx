@@ -46,6 +46,15 @@ export default function App() {
   const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null)
   const [personPreviews, setPersonPreviews] = useState<Array<{ person_id: string; name: string; photo_count: number; face_id?: string }>>([])
   const [activeScans, setActiveScans] = useState<ScanProgress[]>([])
+  // Scan results the user dismissed (ringkasan selesai) — persisted per session
+  const [dismissedScans, setDismissedScans] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('picly:dismissed-scans')
+      return raw ? new Set(JSON.parse(raw)) : new Set()
+    } catch {
+      return new Set()
+    }
+  })
 
   // Auth state (Fase 2: account/entitlement — local features don't require it)
   const [authStatus, setAuthStatus] = useState<{ loggedIn: boolean; email: string | null }>({ loggedIn: false, email: null })
@@ -283,6 +292,16 @@ export default function App() {
       loadFolders()
       setTimeout(() => loadPhotos(scopeRef.current.person, null, scopeRef.current.folder), 300)
     }
+  }
+
+  // Remove a finished scan from the sidebar (ringkasan yang sudah selesai)
+  const dismissScan = (scanId: string) => {
+    setDismissedScans((prev) => {
+      const next = new Set(prev)
+      next.add(scanId)
+      try { localStorage.setItem('picly:dismissed-scans', JSON.stringify([...next])) } catch {}
+      return next
+    })
   }
 
   // Remove an added folder and all photos indexed under it (local store)
@@ -580,6 +599,74 @@ export default function App() {
           </div>
         </div>
 
+        {/* Scanning — live scan progress (aktif/baru selesai) lives in the sidebar */}
+        {activeScans.filter((s) => !dismissedScans.has(s.scan_id)).length > 0 && (
+          <div className="sidebar-section">
+            <div className="sidebar-section-title">Scanning</div>
+            <div className="scan-progress sidebar">
+              {activeScans
+                .filter((s) => !dismissedScans.has(s.scan_id))
+                .map((s) => {
+                  const total = s.total || 0
+                  const processed = s.processed || 0
+                  const pct = total > 0
+                    ? Math.min(100, Math.round((processed / total) * 100))
+                    : (s.status === 'done' || s.status === 'error' ? 100 : 0)
+                  const name = (s.folder || '').split('/').filter(Boolean).pop() || 'Folder'
+                  const isQueued = s.status === 'queued'
+                  const isRunning = s.status === 'running'
+                  const isDone = s.status === 'done'
+                  const isError = s.status === 'error'
+                  const isCancelled = s.status === 'cancelled'
+                  return (
+                    <div key={s.scan_id} className="scan-item">
+                      <div className="scan-item-top">
+                        <span className="scan-folder-name" title={s.folder}>{name}</span>
+                        <div className="scan-item-actions">
+                          <span className="scan-item-status">
+                            {isDone ? `✓ ${s.scanned} photos` : isCancelled ? 'Stopped' : isError ? 'Failed' : `${processed}/${total}`}
+                          </span>
+                          {(isQueued || isRunning) && (
+                            <button className="scan-stop-btn" title="Stop scan" onClick={() => stopScan(s.scan_id)}>
+                              <X size={11} weight="bold" />
+                            </button>
+                          )}
+                          {(isDone || isError || isCancelled) && (
+                            <button className="scan-dismiss-btn" title="Sembunyikan" onClick={() => dismissScan(s.scan_id)}>
+                              <X size={11} weight="bold" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="progress-bar">
+                        <div
+                          className={`progress-fill${isDone ? ' done' : ''}${isError ? ' error' : ''}${isCancelled ? ' cancelled' : ''}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <div className="scan-item-sub">
+                        {isRunning && s.current_file ? (
+                          <span className="scan-current" title={s.current_file}>{s.current_file.split('/').pop()}</span>
+                        ) : isQueued ? (
+                          <span>Waiting for a previous scan to finish…</span>
+                        ) : isDone ? (
+                          <span className="scan-done-line">
+                            {s.scanned} new · {s.total_faces} faces · {s.persons} persons
+                            {s.errors ? ` · ${s.errors} errors` : ''}
+                          </span>
+                        ) : isCancelled ? (
+                          <span className="scan-cancelled-line">Stopped at {processed} of {total} files</span>
+                        ) : isError ? (
+                          <span className="scan-error-line">Scan failed{s.errors ? ` (${s.errors} errors)` : ''}</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          </div>
+        )}
+
         {/* Folders added via '+ Add folder' */}
         <div className="sidebar-section">
           <div className="sidebar-section-title-row">
@@ -705,70 +792,7 @@ export default function App() {
             >✕</button>
           </div>
         )}
-        {/* Scan progress banner — prominent, above the toolbar */}
-        {activeScans.length > 0 && (
-          <div className="scan-progress">
-            <div className="scan-progress-header">
-              <span>{scanning ? 'Scanning photos…' : 'Recent scans'}</span>
-              <span>{scanning
-                ? `${activeScans.filter((s) => s.status === 'queued' || s.status === 'running').length} folder${activeScans.filter((s) => s.status === 'queued' || s.status === 'running').length === 1 ? '' : 's'} active`
-                : 'all done'}</span>
-            </div>
-            {activeScans.map((s) => {
-              const total = s.total || 0
-              const processed = s.processed || 0
-              const pct = total > 0
-                ? Math.min(100, Math.round((processed / total) * 100))
-                : (s.status === 'done' || s.status === 'error' ? 100 : 0)
-              const name = (s.folder || '').split('/').filter(Boolean).pop() || 'Folder'
-              const isQueued = s.status === 'queued'
-              const isRunning = s.status === 'running'
-              const isDone = s.status === 'done'
-              const isError = s.status === 'error'
-              const isCancelled = s.status === 'cancelled'
-              return (
-                <div key={s.scan_id} className="scan-item">
-                  <div className="scan-item-top">
-                    <span className="scan-folder-name" title={s.folder}>{name}</span>
-                    <div className="scan-item-actions">
-                      <span className="scan-item-status">
-                        {isDone ? `✓ ${s.scanned} photos` : isCancelled ? 'Stopped' : isError ? 'Failed' : `${processed}/${total}`}
-                      </span>
-                      {(isQueued || isRunning) && (
-                        <button className="scan-stop-btn" title="Stop scan" onClick={() => stopScan(s.scan_id)}>
-                          <X size={11} weight="bold" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div className="progress-bar">
-                    <div
-                      className={`progress-fill${isDone ? ' done' : ''}${isError ? ' error' : ''}${isCancelled ? ' cancelled' : ''}`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <div className="scan-item-sub">
-                    {isRunning && s.current_file ? (
-                      <span className="scan-current" title={s.current_file}>{s.current_file.split('/').pop()}</span>
-                    ) : isQueued ? (
-                      <span>Waiting for a previous scan to finish…</span>
-                    ) : isDone ? (
-                      <span className="scan-done-line">
-                        {s.scanned} new · {s.total_faces} faces · {s.persons} persons
-                        {s.errors ? ` · ${s.errors} errors` : ''}
-                      </span>
-                    ) : isCancelled ? (
-                      <span className="scan-cancelled-line">Stopped at {processed} of {total} files</span>
-                    ) : isError ? (
-                      <span className="scan-error-line">Scan failed{s.errors ? ` (${s.errors} errors)` : ''}</span>
-                    ) : null}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-
+        {/* Scan progress banner — moved to sidebar (scan status is sidebar context) */}
         <div className="toolbar">
           <input
             type="file"
