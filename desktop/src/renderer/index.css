@@ -715,49 +715,42 @@ html, body, #root {
 }
 
 /* Scan progress — live per-folder bars, shown inside the sidebar's Scanning section.
-   No own max-height/scroll: it rides along .sidebar-scroll so items never get
-   clipped by a nested scroll container. */
+   Items are styled like .nav-item (folder rows) so they share the same truncation
+   behavior — name + status in .disk-info, actions on the right, bar below. */
 .scan-progress.sidebar {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 2px 2px 2px;
-  min-width: 0; /* allow children to shrink below intrinsic width */
-  overflow: hidden; /* clip anything that would escape the sidebar */
+  gap: 6px;
+  min-width: 0;
 }
 
-.scan-item {
+.scan-nav-item {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
-  overflow: hidden;
+  border-radius: 6px;
+  padding: 6px 10px;
+  transition: background 0.15s;
 }
+
+.scan-nav-item:hover { background: var(--surface-2); }
 
 .scan-item-top {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
 }
 
-.scan-folder-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0; /* let the name truncate instead of pushing actions out */
-  flex: 1 1 auto;
-}
+.scan-item-top .nav-icon { flex-shrink: 0; }
+.scan-item-top .disk-info { flex: 1 1 auto; min-width: 0; }
 
-.scan-item-status {
-  font-size: 11px;
-  color: var(--text-muted);
+.scan-nav-item .row-actions {
   flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .scan-item-sub {
@@ -793,14 +786,7 @@ html, body, #root {
 .progress-fill.error { background: var(--danger); }
 .progress-fill.cancelled { background: var(--text-muted); }
 
-/* Right side of a scan item: status + stop button */
-.scan-item-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
+/* Stop/dismiss buttons on a scan row */
 .scan-stop-btn {
   display: inline-flex;
   align-items: center;

@@ -619,21 +619,24 @@ export default function App() {
                   const isError = s.status === 'error'
                   const isCancelled = s.status === 'cancelled'
                   return (
-                    <div key={s.scan_id} className="scan-item">
+                    <div key={s.scan_id} className="scan-nav-item">
                       <div className="scan-item-top">
-                        <span className="scan-folder-name" title={s.folder}>{name}</span>
-                        <div className="scan-item-actions">
-                          <span className="scan-item-status">
-                            {isDone ? `✓ ${s.scanned} photos` : isCancelled ? 'Stopped' : isError ? 'Failed' : `${processed}/${total}`}
-                          </span>
+                        <Folder size={16} className="nav-icon" />
+                        <div className="disk-info">
+                          <div className="disk-name" title={s.folder}>{name}</div>
+                          <div className="disk-space">
+                            {isQueued ? 'Queued…' : isRunning ? `${processed}/${total}` : isDone ? `✓ ${s.scanned} photos` : isCancelled ? 'Stopped' : 'Failed'}
+                          </div>
+                        </div>
+                        <div className="row-actions">
                           {(isQueued || isRunning) && (
                             <button className="scan-stop-btn" title="Stop scan" onClick={() => stopScan(s.scan_id)}>
-                              <X size={11} weight="bold" />
+                              <X size={13} weight="bold" />
                             </button>
                           )}
                           {(isDone || isError || isCancelled) && (
                             <button className="scan-dismiss-btn" title="Sembunyikan" onClick={() => dismissScan(s.scan_id)}>
-                              <X size={11} weight="bold" />
+                              <X size={13} weight="bold" />
                             </button>
                           )}
                         </div>
