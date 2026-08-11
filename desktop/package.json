@@ -1,5 +1,6 @@
 {
   "name": "picly-desktop",
+  "productName": "Picly",
   "version": "1.0.0",
   "private": true,
   "type": "commonjs",
@@ -17,6 +18,7 @@
     "smoke:electron": "npm run build:local && node scripts/prepare-native.mjs electron && electron scripts/electron-smoke.cjs",
     "electron:dev": "npm run build:local && node scripts/prepare-native.mjs electron && node scripts/dev.mjs",
     "electron:build": "npm run build:local && node scripts/prepare-native.mjs electron && vite build && electron-builder",
+    "generate:icon": "node scripts/generate-icon.mjs",
     "abi:check": "npm run build:local && node scripts/prepare-native.mjs electron && node scripts/run-abi-check.cjs",
     "auth:smoke": "ELECTRON_RUN_AS_NODE=1 electron scripts/auth-smoke.cjs",
     "postinstall": "node scripts/fix-electron.mjs && node scripts/rebuild-native.mjs"
@@ -30,21 +32,25 @@
     "files": [
       "dist/**/*",
       "dist-main/**/*",
-      "src/main/**/*"
+      "src/main/**/*",
+      "build/icon.png"
     ],
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.icns",
+      "artifactName": "Picly-${version}.${ext}",
+      "category": "public.app-category.graphics-design"
+    },
     "win": {
       "target": "nsis",
+      "icon": "build/icon.ico",
       "artifactName": "Picly-Setup-${version}.${ext}"
     },
     "linux": {
       "target": "AppImage",
+      "icon": "build/icon.png",
       "artifactName": "Picly-${version}.${ext}",
       "category": "Graphics"
-    },
-    "mac": {
-      "target": "dmg",
-      "artifactName": "Picly-${version}.${ext}",
-      "category": "public.app-category.graphics-design"
     }
   },
   "dependencies": {

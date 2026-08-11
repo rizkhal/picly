@@ -1,8 +1,12 @@
-const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 const API_BASE = process.env.PICLY_API_URL || 'http://localhost:8000';
+
+// macOS menu bar (next to the Apple logo) shows this — default is "Electron".
+// Set before window/UI creation so the app menu label follows the app name.
+app.setName('Picly');
 
 // Custom scheme for serving local thumbnails to the renderer (picly://thumb/<id>.jpg)
 protocol.registerSchemesAsPrivileged([
@@ -10,9 +14,17 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 function createWindow() {
+  // Window icon — bundled into the app (build/icon.png is in electron-builder
+  // "files"), resolved relative to the asar root.
+  const appIcon = path.join(__dirname, '../../build/icon.png');
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    // Explicit title so the title bar shows "Picly" immediately — the HTML
+    // <title> only applies after the page loads, so without this the bar
+    // briefly (or permanently, if the load stalls) shows Electron's default.
+    title: 'Picly',
+    icon: appIcon,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -26,9 +38,55 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, '../dist/index.html'));
   }
+
+  // Keep the title bar as "Picly" even if the page never sets a title.
+  win.on('page-title-updated', (e, title) => {
+    e.preventDefault();
+    win.setTitle('Picly');
+  });
 }
 
 app.whenReady().then(() => {
+  // macOS: the native About panel + top app-menu label are taken from the
+  // running bundle's CFBundleName — in dev that's Electron.app, so they show
+  // "Electron" no matter what app.name is. setAboutPanelOptions overrides what
+  // the About panel displays.
+  if (process.platform === 'darwin') {
+    app.setAboutPanelOptions({
+      applicationName: 'Picly',
+      applicationVersion: app.getVersion(),
+    });
+  }
+
+  // macOS: rebuild the app menu so the first item (next to the Apple logo)
+  // reads "Picly" instead of the Electron default. Using an explicit label
+  // (rather than role: 'appMenu', which hardcodes the Electron label) ensures
+  // the menu bar always shows the app name.
+  if (process.platform === 'darwin') {
+    const template = [
+      {
+        label: app.name,
+        submenu: [
+          { role: 'about' },
+          { type: 'separator' },
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          { role: 'quit' },
+        ],
+      },
+      { role: 'fileMenu' },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+      { role: 'help' },
+    ];
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  }
+
   // Serve cached thumbnails + face crops from the local store:
   //   picly://thumb/<photoId>.jpg  — full-photo thumbnail
   //   picly://face/<faceId>.jpg    — cropped face preview
