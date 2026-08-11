@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ClockCounterClockwise, Video, MapPin, Trash, Folder, MagnifyingGlass, Camera, X } from '@phosphor-icons/react'
+import { ClockCounterClockwise, Video, MapPin, Trash, Folder, MagnifyingGlass, Camera, X, CaretRight } from '@phosphor-icons/react'
 
 type Person = { person_id: string; name: string; photo_count: number }
 type Photo = { photo_id: string; path: string; thumb_path?: string; similarity?: number; person_id?: string; person_name?: string; face_id?: string; matched_persons?: string[] }
@@ -450,20 +450,11 @@ export default function App() {
     }
   }
 
-  // Handle disk selection
+  // Handle disk selection — toggles expansion; clicking a nested folder loads its photos
   const handleDiskClick = (diskPath: string) => {
     setSelectedView('')
-    if (selectedDisk === diskPath) {
-      setSelectedDisk(null)
-      setSelectedPerson(null)
-      setSelectedFolder(null)
-      setPhotos([])
-    } else {
-      setSelectedDisk(diskPath)
-      setSelectedPerson(null)
-      setSelectedFolder(null)
-      loadPhotos(null, diskPath)
-    }
+    setSelectedDisk((prev) => (prev === diskPath ? null : diskPath))
+    // Expanding a disk does not load photos; nested folders do that.
   }
 
   // Handle folder selection — photos are scoped to this folder only
@@ -503,6 +494,18 @@ export default function App() {
 
   // Map face previews (top persons) by id so sidebar rows can show avatars
   const previewById = new Map(personPreviews.map(p => [p.person_id, p]))
+
+  // Group indexed folders under their most specific matching disk, so folders on a
+  // mounted volume (e.g. /Volumes/XStorage/...) only appear under that disk — not also
+  // under the root disk. Folders not under any mounted volume land on the root disk.
+  const foldersByDisk = new Map<string, Folder[]>()
+  for (const disk of disks) {
+    const matched = folders.filter((f) =>
+      f.host_path.startsWith(disk.path) &&
+      disks.every((d) => !f.host_path.startsWith(d.path) || d.path.length <= disk.path.length)
+    )
+    if (matched.length > 0) foldersByDisk.set(disk.path, matched)
+  }
 
   return (
     <div className="app">
@@ -581,19 +584,54 @@ export default function App() {
             <div className="sidebar-section">
               <div className="sidebar-section-title">Disk</div>
               <div className="nav-list">
-                {disks.map((disk) => (
-                  <div
-                    key={disk.path}
-                    className={`nav-item ${selectedDisk === disk.path ? 'active' : ''}`}
-                    onClick={() => handleDiskClick(disk.path)}
-                  >
-                    <Folder size={16} className="nav-icon" />
-                    <div className="disk-info">
-                      <div className="disk-name">{disk.name}</div>
-                      <div className="disk-space">{disk.free_gb ?? ''}{disk.free_gb !== undefined ? ' GB free' : ''}</div>
+                {disks.map((disk) => {
+                  const diskFolders = foldersByDisk.get(disk.path) || []
+                  const expanded = selectedDisk === disk.path
+                  const isRoot = disk.path === '/'
+                  return (
+                    <div key={disk.path} className="disk-group">
+                      <div
+                        className={`nav-item ${expanded ? 'active' : ''}`}
+                        onClick={() => handleDiskClick(disk.path)}
+                      >
+                        <Folder size={16} className="nav-icon" />
+                        <div className="disk-info">
+                          <div className="disk-name">{disk.name}</div>
+                          <div className="disk-space">
+                            {disk.free_gb ?? ''}{disk.free_gb !== undefined ? ' GB free' : ''}
+                            {isRoot ? ' · System' : ''}
+                          </div>
+                        </div>
+                        <CaretRight
+                          size={14}
+                          className={`disk-caret ${expanded ? 'open' : ''}`}
+                        />
+                      </div>
+                      {expanded && (
+                        <div className="disk-folders">
+                          {diskFolders.length === 0 ? (
+                            <div className="disk-empty">No folders indexed on this disk</div>
+                          ) : (
+                            diskFolders.map((folder) => (
+                              <div
+                                key={folder.folder_id}
+                                className={`nav-item disk-folder-item ${selectedFolder?.folder_id === folder.folder_id ? 'active' : ''}`}
+                                onClick={() => handleFolderClick(folder)}
+                                title={folder.host_path}
+                              >
+                                <span className="disk-folder-bullet">•</span>
+                                <div className="disk-info">
+                                  <div className="disk-name">{folder.name}</div>
+                                  <div className="disk-space">{folder.photo_count} photos</div>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}

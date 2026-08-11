@@ -328,6 +328,48 @@ html, body, #root {
   padding-top: 4px;
 }
 
+/* Expandable disk groups — click disk to reveal its indexed folders */
+.disk-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.disk-caret {
+  margin-left: auto;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+  opacity: 0.6;
+}
+
+.disk-caret.open {
+  transform: rotate(90deg);
+}
+
+.disk-folders {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 2px 0 4px 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+
+.disk-folder-item {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.disk-folder-bullet {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.disk-empty {
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .sidebar-footer {
   padding: 12px;
   border-top: 1px solid var(--border);
