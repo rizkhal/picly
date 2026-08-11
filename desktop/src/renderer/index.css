@@ -66,7 +66,8 @@ html, body, #root {
   background: none;
   border: none;
   text-align: left;
-  font: inherit;
+  font-family: inherit;
+  font-size: 11px; /* match .sidebar-section-title so Disk title sizes like Collections/Folders */
   cursor: pointer;
   color: var(--text-muted);
   padding: 4px 2px;
