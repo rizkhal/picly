@@ -1,8 +1,7 @@
-version: "3.9"
-
 services:
   db:
-    image: postgres:16-alpine
+    # pgvector image (includes the vector extension used for HNSW face search)
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_DB: picly
@@ -10,7 +9,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-picly}
     volumes:
       - picly_pgdata:/var/lib/postgresql/data
-      - ./services/face-search/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # Mount the directory, not a single file: Colima/sshfs cannot bind-mount
+      # individual files, and postgres auto-runs every *.sql in this dir.
+      - ./services/face-search/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U picly"]
       interval: 5s
@@ -28,10 +29,17 @@ services:
       DATABASE_URL: postgresql://picly:${POSTGRES_PASSWORD:-picly}@db:5432/picly
       PICLY_API_KEY: ${PICLY_API_KEY:-}
       UPLOAD_DIR: /tmp/picly_uploads
-      SCAN_THRESHOLD: "1000"
+      # Desktop "+ Add folder" maps picked host folders onto these read-only
+      # /host roots and scans in place (no copying). Multiple roots are supported
+      # as comma-separated "source=target" pairs: /Volumes covers every external
+      # drive, $HOME the user folder. On Colima/Lima each source must also be
+      # listed in colima.yaml mounts so the VM can actually see it.
+      HOST_MOUNTS: /Volumes=/host/Volumes,${HOME:-/Users/rizkal}=/host${HOME:-/Users/rizkal}
     volumes:
-      - /Users/rizkal/picly-photos-local:/photos:ro
-      - /Volumes/XStorage:/host-xstorage:ro
+      # Read-only views of host storage for in-place scanning
+      - /Volumes:/host/Volumes:ro
+      - ${HOME:-/Users/rizkal}:/host${HOME:-/Users/rizkal}:ro
+      # Temp dir for /search query images; thumbnails; face-model cache
       - picly_uploads:/tmp/picly_uploads
       - picly_thumbs:/tmp/picly_thumbs
       - picly_insightface:/root/.insightface/models

@@ -17,8 +17,9 @@ WORKDIR /app
 COPY services/face-search/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy app
+# Copy app (entry point + package)
 COPY services/face-search/main.py ./
+COPY services/face-search/app ./app
 
 # Create uploads dir
 RUN mkdir -p /tmp/picly_uploads
