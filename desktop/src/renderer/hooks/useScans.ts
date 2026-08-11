@@ -60,10 +60,10 @@ export function useScans(onRefresh: () => void) {
 
   // Add folder(s) — scan directly via local services (no backend); live progress
   // is streamed via the 'local:scan-progress' IPC event.
-  const startScanFor = useCallback(async (hostPaths: string[]) => {
+  const startScanFor = useCallback(async (hostPaths: string[], mode: 'add' | 'rescan' = 'add') => {
     const started: ScanProgress[] = []
     for (const hostPath of hostPaths) {
-      const data = await ipc.local.scanFolder(hostPath)
+      const data = mode === 'rescan' ? await ipc.local.rescanFolder(hostPath) : await ipc.local.scanFolder(hostPath)
       if (data?.scanId) {
         started.push({ scan_id: data.scanId, folder: hostPath, status: 'queued', total: 0, processed: 0, scanned: 0, total_faces: 0, persons: 0, thumbs_generated: 0, errors: 0 })
       }
@@ -76,6 +76,11 @@ export function useScans(onRefresh: () => void) {
     const paths = await ipc.shell.selectFolder()
     if (paths.length === 0) return
     await startScanFor(paths)
+  }, [startScanFor])
+
+  // Re-scan an existing folder — delta sync (add new, remove missing)
+  const rescanFolder = useCallback(async (hostPath: string) => {
+    await startScanFor([hostPath], 'rescan')
   }, [startScanFor])
 
   // Pause a running scan — cancel main's scan, persist the state so a reload
@@ -167,6 +172,7 @@ export function useScans(onRefresh: () => void) {
         total: p.total ?? 0,
         processed: p.processed ?? 0,
         scanned: p.scanned ?? 0,
+        removed: p.removed ?? 0,
         total_faces: p.totalFaces ?? p.total_faces ?? 0,
         persons: p.persons ?? 0,
         thumbs_generated: p.thumbsGenerated ?? p.thumbs_generated ?? 0,
@@ -195,6 +201,7 @@ export function useScans(onRefresh: () => void) {
     scansRef,
     startScanFor,
     scanFolder,
+    rescanFolder,
     pauseScan,
     resumeScan,
     removeScan,

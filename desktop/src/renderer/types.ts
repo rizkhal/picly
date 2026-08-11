@@ -32,6 +32,7 @@ export type ScanProgress = {
   total: number
   processed: number
   scanned: number
+  removed?: number
   total_faces: number
   persons: number
   thumbs_generated: number

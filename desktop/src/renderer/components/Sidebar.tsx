@@ -1,4 +1,4 @@
-import { Folder, Trash, X, CaretRight, Pause, Play, GearSix, Aperture } from '@phosphor-icons/react'
+import { Folder, Trash, X, CaretRight, Pause, Play, GearSix, Aperture, ArrowClockwise } from '@phosphor-icons/react'
 import type { Disk, Folder as FolderT, PersonPreview, ScanProgress } from '../types'
 
 type ScanRowProps = {
@@ -54,12 +54,14 @@ function ScanRow({ scan, onPause, onResume, onRemove, onDismiss }: ScanRowProps)
           )}
         </div>
       </div>
-      <div className="progress-bar">
-        <div
-          className={`progress-fill${isDone ? ' done' : ''}${isError ? ' error' : ''}${isCancelled ? ' cancelled' : ''}${isPaused ? ' paused' : ''}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
+      {!isDone && !isError && !isCancelled && (
+        <div className="progress-bar">
+          <div
+            className={`progress-fill${isPaused ? ' paused' : ''}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
       <div className="scan-item-sub">
         {isRunning && scan.current_file ? (
           <span className="scan-current" title={scan.current_file}>{scan.current_file.split('/').pop()}</span>
@@ -70,6 +72,7 @@ function ScanRow({ scan, onPause, onResume, onRemove, onDismiss }: ScanRowProps)
         ) : isDone ? (
           <span className="scan-done-line">
             {scan.scanned} new · {scan.total_faces} faces · {scan.persons} persons
+            {scan.removed ? ` · ${scan.removed} removed` : ''}
             {scan.errors ? ` · ${scan.errors} errors` : ''}
           </span>
         ) : isCancelled ? (
@@ -94,6 +97,7 @@ type SidebarProps = {
   selectedFolder: FolderT | null
   onFolderClick: (folder: FolderT) => void
   onRemoveFolder: (folder: FolderT) => void
+  onRescanFolder: (folder: FolderT) => void
   scanning: boolean
   onAddFolder: () => void
   disks: Disk[]
@@ -111,7 +115,7 @@ export function Sidebar(props: SidebarProps) {
     scanError,
     activeScans, dismissedScans, onPause, onResume, onRemove, onDismiss,
     folders, selectedFolder, onFolderClick, onRemoveFolder,
-    scanning, onAddFolder,
+    onRescanFolder, scanning, onAddFolder,
     disks, selectedDisk, onDiskClick, diskCollapsed, onToggleDisk,
     driveStatus, personCount, onOpenSettings,
   } = props
@@ -168,6 +172,13 @@ export function Sidebar(props: SidebarProps) {
                   <div className="disk-space">{folder.photo_count} photos{folder.available ? '' : ' · offline'}</div>
                 </div>
                 <div className="row-actions">
+                  <button
+                    className="row-action-btn"
+                    title="Re-scan folder (tambah baru, hapus yang hilang)"
+                    onClick={(e) => { e.stopPropagation(); onRescanFolder(folder) }}
+                  >
+                    <ArrowClockwise size={13} />
+                  </button>
                   <button
                     className="row-action-btn"
                     title="Remove folder and its indexed photos"

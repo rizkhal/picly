@@ -42,11 +42,17 @@ export interface ScanHandle {
   done: Promise<ScanSummary>
 }
 
-/** Start a folder scan; progress is streamed via onProgress. */
+/**
+ * Start a folder scan; progress is streamed via onProgress.
+ * mode 'add' = only index NEW files (resume-friendly).
+ * mode 'rescan' = delta sync: index new files AND remove photos whose file is
+ * gone from disk. Walks the full folder (no filter) so the removal pass works.
+ */
 export function startScan(
   services: LocalServices,
   folderPath: string,
   onProgress?: (p: ScanProgress) => void,
+  mode: 'add' | 'rescan' = 'add',
 ): ScanHandle {
   let cancelled = false
   const scanId = `scan_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
@@ -63,7 +69,10 @@ export function startScan(
       // Resume-friendly: skip files already indexed under this folder so the
       // progress bar starts from the remaining work, not the whole folder.
       // (In-loop hash/path dedup in scanner.ts stays as a safety net.)
-      filterFile: (filePath) => !services.store.hasPhotoPath(filePath),
+      rescan: mode === 'rescan',
+      filterFile: mode === 'rescan'
+        ? undefined
+        : (filePath) => !services.store.hasPhotoPath(filePath),
     })
   })()
   return { scanId, cancel: () => { cancelled = true }, done }

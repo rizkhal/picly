@@ -1,4 +1,4 @@
-import { closeSync, mkdirSync, openSync, readSync, readdirSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readSync, readdirSync, unlinkSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import xxhash from 'xxhash-wasm'
@@ -20,6 +20,8 @@ export interface ScanProgress {
   total: number
   processed: number
   scanned: number
+  /** Photos removed during a rescan (files no longer on disk). */
+  removed?: number
   totalFaces: number
   persons: number
   errors: number
@@ -31,6 +33,7 @@ export interface ScanSummary {
   scanId: string
   total: number
   scanned: number
+  removed: number
   totalFaces: number
   persons: number
   errors: number
@@ -47,6 +50,10 @@ export interface ScanOptions {
   /** Skip files before scanning starts (e.g. already-indexed paths) so the
    *  progress bar reflects only the remaining work. Path-based, cheap. */
   filterFile?: (filePath: string) => boolean
+  /** Rescan mode: after indexing, remove photos whose file no longer exists on
+   *  disk (delta sync — no re-embed of unchanged photos). filterFile is ignored
+   *  in this mode so the full folder is walked for the removal pass. */
+  rescan?: boolean
   /** Stable id for this scan. When absent, scanFolder generates its own. The
    *  id is what progress events + the summary carry, so the caller (local.ts)
    *  and the scanner MUST agree on it — otherwise the renderer sees two rows
@@ -113,7 +120,9 @@ export async function scanFolder(
   const started = Date.now()
   const scanId = options.scanId ?? `scan_${started}_${Math.random().toString(36).slice(2, 8)}`
   const allFiles = options.files ?? collectImages(folderPath)
-  const files = options.filterFile ? allFiles.filter(options.filterFile) : allFiles
+  // Rescan walks the FULL folder (removal pass needs every path). Add-mode
+  // respects filterFile so a resume only continues the remaining work.
+  const files = options.rescan ? allFiles : (options.filterFile ? allFiles.filter(options.filterFile) : allFiles)
   const total = files.length
 
   const progress: ScanProgress = {
@@ -122,6 +131,7 @@ export async function scanFolder(
     total,
     processed: 0,
     scanned: 0,
+    removed: 0,
     totalFaces: 0,
     persons: store.listPersons().length,
     errors: 0,
@@ -210,6 +220,23 @@ export async function scanFolder(
   }
 
   store.markFolderScanned(folderPath)
+
+  // Rescan: remove photos whose file is gone from disk (delta sync). Faces
+  // cascade-delete via FK; thumbnail/crop files are cleaned up alongside.
+  if (options.rescan && !cancelled) {
+    const disk = new Set(allFiles)
+    for (const row of store.listFolderPhotos(folderPath)) {
+      if (checkCancel()) break
+      if (!disk.has(row.path)) {
+        store.deletePhoto(row.photoId)
+        if (row.thumbPath) try { unlinkSync(row.thumbPath) } catch { /* already gone */ }
+        progress.removed! += 1
+        progress.processed += 1
+        emit()
+      }
+    }
+  }
+
   progress.status = cancelled ? 'cancelled' : 'done'
   progress.currentFile = null
   progress.persons = personCount
@@ -219,6 +246,7 @@ export async function scanFolder(
     scanId,
     total,
     scanned: progress.scanned,
+    removed: progress.removed ?? 0,
     totalFaces: progress.totalFaces,
     persons: progress.persons,
     errors: progress.errors,

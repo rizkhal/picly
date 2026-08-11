@@ -130,6 +130,18 @@ export const local = {
     }
   },
 
+  async rescanFolder(hostPath: string): Promise<{ scanId: string } | null> {
+    const api = bridge()
+    if (!api?.local?.rescanFolder) return null
+    try {
+      const data = await api.local.rescanFolder(hostPath)
+      return data?.scanId ? { scanId: data.scanId } : null
+    } catch (e) {
+      console.error('Rescan failed for', hostPath, e)
+      throw e
+    }
+  },
+
   async cancelScan(scanId: string): Promise<void> {
     const api = bridge()
     if (!api?.local?.cancelScan) return

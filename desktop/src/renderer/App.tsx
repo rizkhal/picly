@@ -31,7 +31,7 @@ export default function App() {
   const scans = useScans(refreshAfterScan)
   const {
     activeScans, dismissedScans, scanning, scanFolder,
-    pauseScan, resumeScan, removeScan, dismissScan, recoverScans,
+    pauseScan, resumeScan, removeScan, dismissScan, recoverScans, rescanFolder,
   } = scans
 
   // Auth + update banner
@@ -223,6 +223,7 @@ export default function App() {
         selectedFolder={selectedFolder}
         onFolderClick={handleFolderClick}
         onRemoveFolder={handleRemoveFolder}
+        onRescanFolder={(folder) => rescanFolder(folder.host_path)}
         scanning={scanning}
         onAddFolder={scanFolder}
         disks={disks}

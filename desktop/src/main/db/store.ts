@@ -181,6 +181,14 @@ export class PhotoStore {
     this.invalidate()
   }
 
+  /** Indexed photos under a folder (for the rescan removal diff). */
+  listFolderPhotos(hostPath: string): Array<{ photoId: string; path: string; thumbPath: string | null }> {
+    const prefix = hostPath.replace(/\/+$/, '') + '/'
+    return this.db
+      .prepare(`SELECT id AS photoId, path, thumb_path AS thumbPath FROM photos WHERE path LIKE ?`)
+      .all(prefix + '%') as Array<{ photoId: string; path: string; thumbPath: string | null }>
+  }
+
   listPhotos(folderPath?: string, limit = 500, offset = 0): unknown[] {
     const where = folderPath ? `WHERE p.path LIKE ?` : ''
     const params: unknown[] = folderPath ? [folderPath.replace(/\/+$/, '') + '/%', limit, offset] : [limit, offset]

@@ -203,6 +203,31 @@ function registerLocalIpc() {
       .finally(() => runningScans.delete(scanId));
     return { scanId };
   });
+  // Rescan an existing folder — delta sync (new files added, missing files removed).
+  ipcMain.handle('local:rescan-folder', (e, folderPath) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const { scanId, cancel, done } = require('../../dist-main/local.js').startScan(
+      getLocalServices(),
+      folderPath,
+      (p) => {
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('local:scan-progress', p);
+        }
+      },
+      'rescan',
+    );
+    runningScans.set(scanId, cancel);
+    done
+      .then((summary) => {
+        if (win && !win.isDestroyed()) win.webContents.send('local:scan-progress', { ...summary, status: summary.cancelled ? 'cancelled' : 'done', scanId });
+      })
+      .catch((err) => {
+        console.error('local rescan failed:', err);
+        if (win && !win.isDestroyed()) win.webContents.send('local:scan-progress', { scanId, status: 'error' });
+      })
+      .finally(() => runningScans.delete(scanId));
+    return { scanId };
+  });
   ipcMain.handle('local:scan-cancel', (_e, scanId) => {
     const cancel = runningScans.get(scanId);
     if (cancel) cancel();
