@@ -1,10 +1,14 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('electron', {
   // Legacy API-based IPC (Python backend)
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   getApiBase: () => ipcRenderer.invoke('get-api-base'),
   listDisks: () => ipcRenderer.invoke('list-disks'),
+
+  // Electron 32+: File.path was removed — resolve the path via webUtils
+  // (preload is the only place that can safely touch the file object).
+  getPathForFile: (file) => (file ? webUtils.getPathForFile(file) : null),
 
   // In-app update check (backend serves the release manifest)
   checkUpdate: () => ipcRenderer.invoke('app:check-update'),

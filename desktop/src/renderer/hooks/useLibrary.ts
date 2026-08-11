@@ -77,7 +77,8 @@ export function useLibrary() {
 
   // Search face — full local: detect ALL faces in the query photo, dedup per photo
   const searchFace = useCallback(async (file: File): Promise<{ photos: Photo[]; facesDetected: number | null; matchedPersons: string[] }> => {
-    const filePath = (file as any).path
+    const filePath = ipc.getPathForFile(file)
+    if (!filePath) return { photos: [], facesDetected: null, matchedPersons: [] }
     const data = await ipc.local.searchPhoto(filePath)
     if (!data) return { photos: [], facesDetected: null, matchedPersons: [] }
     const photos = (data.hits || []).map((h: any) => ({

@@ -5,6 +5,18 @@ function bridge(): any {
   return (window as any).electron
 }
 
+/** Resolve a File object's real path (Electron 32+: File.path is gone). */
+export function getPathForFile(file: File): string | null {
+  const api = bridge()
+  if (!api?.getPathForFile) return null
+  try {
+    return api.getPathForFile(file) || null
+  } catch (e) {
+    console.error('getPathForFile failed', e)
+    return null
+  }
+}
+
 /** Disks (real host mounts via Electron) */
 export async function listDisks(): Promise<Disk[]> {
   const api = bridge()
