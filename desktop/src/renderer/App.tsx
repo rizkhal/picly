@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ClockCounterClockwise, Video, MapPin, Trash, Folder, MagnifyingGlass, Camera, X } from '@phosphor-icons/react'
+import { ClockCounterClockwise, Video, MapPin, Trash, Folder, MagnifyingGlass, Camera, X, CaretRight } from '@phosphor-icons/react'
 
 type Person = { person_id: string; name: string; photo_count: number }
 type Photo = { photo_id: string; path: string; thumb_path?: string; similarity?: number; person_id?: string; person_name?: string; face_id?: string; matched_persons?: string[] }
@@ -31,6 +31,10 @@ export default function App() {
   const [scanError, setScanError] = useState<string | null>(null)
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [driveStatus, setDriveStatus] = useState('Checking...')
+  // Disk section collapse — persisted so the choice survives restarts
+  const [diskCollapsed, setDiskCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('picly:disk-collapsed') === '1' } catch { return false }
+  })
   const [searchFile, setSearchFile] = useState<File | null>(null)
   const [searchFacesDetected, setSearchFacesDetected] = useState<number | null>(null)
   const [searchMatchedPersons, setSearchMatchedPersons] = useState<string[]>([])
@@ -579,22 +583,36 @@ export default function App() {
         <div className="sidebar-bottom">
           {disks.length > 0 && (
             <div className="sidebar-section">
-              <div className="sidebar-section-title">Disk</div>
-              <div className="nav-list">
-                {disks.map((disk) => (
-                  <div
-                    key={disk.path}
-                    className={`nav-item ${selectedDisk === disk.path ? 'active' : ''}`}
-                    onClick={() => handleDiskClick(disk.path)}
-                  >
-                    <Folder size={16} className="nav-icon" />
-                    <div className="disk-info">
-                      <div className="disk-name">{disk.name}</div>
-                      <div className="disk-space">{disk.free_gb ?? ''}{disk.free_gb !== undefined ? ' GB free' : ''}</div>
+              <button
+                className="sidebar-section-title sidebar-collapse-btn"
+                onClick={() => {
+                  setDiskCollapsed((c) => {
+                    const next = !c
+                    try { localStorage.setItem('picly:disk-collapsed', next ? '1' : '0') } catch {}
+                    return next
+                  })
+                }}
+              >
+                <CaretRight size={12} className={`section-caret ${diskCollapsed ? '' : 'open'}`} />
+                Disk
+              </button>
+              {!diskCollapsed && (
+                <div className="nav-list">
+                  {disks.map((disk) => (
+                    <div
+                      key={disk.path}
+                      className={`nav-item ${selectedDisk === disk.path ? 'active' : ''}`}
+                      onClick={() => handleDiskClick(disk.path)}
+                    >
+                      <Folder size={16} className="nav-icon" />
+                      <div className="disk-info">
+                        <div className="disk-name">{disk.name}</div>
+                        <div className="disk-space">{disk.free_gb ?? ''}{disk.free_gb !== undefined ? ' GB free' : ''}</div>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <div className="sidebar-footer">

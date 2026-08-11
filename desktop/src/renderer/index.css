@@ -57,6 +57,38 @@ html, body, #root {
   letter-spacing: 0.08em;
 }
 
+/* Collapsible section title — whole row clickable, caret rotates when open */
+.sidebar-collapse-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px 2px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.sidebar-collapse-btn:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.section-caret {
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: transform 0.15s;
+}
+
+.section-caret.open {
+  transform: rotate(90deg);
+}
+
 /* Section header row with an inline text action (e.g. "+ Add folder") */
 .sidebar-section-title-row {
   display: flex;
