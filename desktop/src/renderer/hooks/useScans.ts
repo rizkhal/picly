@@ -42,11 +42,17 @@ export function useScans(onRefresh: () => void) {
     scansRef.current = activeScans
   }, [activeScans])
 
-  // Ids of paused scans — progress events from main (a 'cancelled' sent by
-  // cancelScan during pause) must not overwrite the 'paused' status.
-  const pausedIdsRef = useRef<Set<string>>(new Set())
+  // Scan ids whose main-process scan should be ignored forever: paused, removed,
+  // or cancelled ids. The main process can still emit straggler events (the final
+  // 'cancelled' sent when its done promise resolves) AFTER we've resumed or
+  // deleted the row — those must never re-add a row. Scan ids are unique per
+  // scan, so once an id is ignored it never needs to be un-ignored.
+  const ignoredIdsRef = useRef<Set<string>>(new Set())
   useEffect(() => {
-    pausedIdsRef.current = new Set(Object.keys(pausedScans))
+    // Paused scans restored from storage on reload: their main-process scan may
+    // still be running (reload doesn't kill main), so their events must be
+    // ignored too. Only ever add — never remove.
+    for (const id of Object.keys(pausedScans)) ignoredIdsRef.current.add(id)
   }, [pausedScans])
 
   // A scan is in flight until every tracked scan has finished
@@ -77,6 +83,10 @@ export function useScans(onRefresh: () => void) {
   const pauseScan = useCallback(async (scanId: string) => {
     const current = activeScans.find((s) => s.scan_id === scanId)
     if (!current) return
+    // Register FIRST (synchronously) so the 'cancelled' event main sends during
+    // cancelScan is ignored — otherwise the UI flickers to stopped then back.
+    // Once ignored, the id stays ignored forever (see ignoredIdsRef).
+    ignoredIdsRef.current.add(scanId)
     await ipc.local.cancelScan(scanId)
     // Freeze the progress so Resume knows where to continue from
     const frozen = { ...current, status: 'paused' as const }
@@ -102,12 +112,17 @@ export function useScans(onRefresh: () => void) {
       persistPaused(next)
       return next
     })
+    // Old id stays in ignoredIdsRef — the resumed scan gets a fresh scan_id, so
+    // the old id's straggler 'cancelled' event must not re-add a row (double).
     setActiveScans((prev) => prev.filter((s) => s.scan_id !== scanId))
     await startScanFor([paused.folder])
   }, [pausedScans, startScanFor])
 
-  // Remove a paused scan entry entirely (no photos deleted, just the status)
+  // Remove a paused scan entry entirely (no photos deleted, just the status).
+  // Defensively ignore the id here too — even if this scan never went through
+  // pauseScan, its straggler events must never re-add a row.
   const removeScan = useCallback((scanId: string) => {
+    ignoredIdsRef.current.add(scanId)
     setPausedScans((prev) => {
       const next = { ...prev }
       delete next[scanId]
@@ -141,11 +156,11 @@ export function useScans(onRefresh: () => void) {
   // When all tracked scans reach a terminal state, refresh the UI.
   useEffect(() => {
     const unsubscribe = ipc.local.onScanProgress((p: any) => {
-      // A paused scan gets a 'cancelled' event from main (cancelScan) — ignore it
-      // so the UI stays 'paused'. A real done/error still lands (race: scan
-      // finished right as the user hit Pause).
       const scanId = p.scanId || p.scan_id
-      if (pausedIdsRef.current.has(scanId) && (p.status === 'cancelled' || p.status === 'error')) return
+      // Any event for an ignored id (paused/cancelled/removed) is dropped — the
+      // main process can still emit straggler progress + a final 'cancelled'
+      // after the row is gone. Those must never re-add or re-run a row.
+      if (ignoredIdsRef.current.has(scanId)) return
       const normalized: ScanProgress = {
         scan_id: scanId,
         folder: p.folder || '',

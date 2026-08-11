@@ -47,6 +47,11 @@ export interface ScanOptions {
   /** Skip files before scanning starts (e.g. already-indexed paths) so the
    *  progress bar reflects only the remaining work. Path-based, cheap. */
   filterFile?: (filePath: string) => boolean
+  /** Stable id for this scan. When absent, scanFolder generates its own. The
+   *  id is what progress events + the summary carry, so the caller (local.ts)
+   *  and the scanner MUST agree on it — otherwise the renderer sees two rows
+   *  (one from startScan's id, one from the events). */
+  scanId?: string
 }
 
 const hasherPromise = xxhash()
@@ -106,7 +111,7 @@ export async function scanFolder(
   options: ScanOptions,
 ): Promise<ScanSummary> {
   const started = Date.now()
-  const scanId = `scan_${started}_${Math.random().toString(36).slice(2, 8)}`
+  const scanId = options.scanId ?? `scan_${started}_${Math.random().toString(36).slice(2, 8)}`
   const allFiles = options.files ?? collectImages(folderPath)
   const files = options.filterFile ? allFiles.filter(options.filterFile) : allFiles
   const total = files.length
