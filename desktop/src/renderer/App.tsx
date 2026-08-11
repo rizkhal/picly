@@ -169,7 +169,7 @@ export default function App() {
     }
   }
 
-  // Load persons (local store) + face previews (first photo of each person)
+  // Load persons (local store) + face crop previews (one representative face each)
   const loadPersons = async () => {
     try {
       const electronApi = (window as any).electron
@@ -179,21 +179,19 @@ export default function App() {
         .filter((p: any) => (p.photoCount ?? p.photo_count ?? 0) > 0)
         .map((p: any) => ({ person_id: p.personId || p.person_id, name: p.name, photo_count: p.photoCount ?? p.photo_count ?? 0 }))
       setPersons(livePersons)
-      // Face previews: use the first photo thumbnail of each person (local)
+      // Face crop previews: one request for every person's representative face
       const previews: Array<{ person_id: string; name: string; photo_count: number; face_id?: string }> = []
-      const top = livePersons.slice().sort((a: any, b: any) => (b.photo_count || 0) - (a.photo_count || 0))
-      await Promise.all(top.map(async (p: any) => {
-        try {
-          const photos = await electronApi.local.listPersonPhotos(p.person_id, 1)
-          if (photos && photos.length > 0 && photos[0].thumbUrl) {
-            previews.push({ ...p, face_id: photos[0].photoId })
-          } else {
-            previews.push(p)
-          }
-        } catch {
-          previews.push(p)
+      const ids = livePersons.map((p: any) => p.person_id)
+      if (ids.length > 0 && electronApi.local.listPersonPreviews) {
+        const faceRows = await electronApi.local.listPersonPreviews(ids)
+        const byId = new Map<string, any>((faceRows || []).map((f: any) => [f.personId || f.person_id, f]))
+        for (const p of livePersons) {
+          const face = byId.get(p.person_id)
+          previews.push({ ...p, face_id: face?.faceId || face?.face_id || undefined })
         }
-      }))
+      } else {
+        previews.push(...livePersons)
+      }
       setPersonPreviews(previews)
     } catch (e) {
       console.error('Failed to load persons', e)
@@ -786,7 +784,7 @@ export default function App() {
                     style={{ width: size, height: size }}
                     src={
                       preview?.face_id
-                        ? `picly://thumb/${preview.face_id}.jpg`
+                        ? `picly://face/${preview.face_id}.jpg`
                         : `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><rect width='100%25' height='100%25' fill='%23222'/><text x='50%25' y='54%25' font-size='18' fill='%233b82f6' text-anchor='middle' font-family='sans-serif'>${person.name.charAt(0).toUpperCase()}</text></svg>`
                     }
                     alt={person.name}

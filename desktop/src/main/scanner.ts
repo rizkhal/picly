@@ -4,7 +4,7 @@ import path from 'node:path'
 import xxhash from 'xxhash-wasm'
 import type { PhotoStore } from './db/store'
 import type { FaceAnalysis } from './ml/faceAnalysis'
-import { makeThumbnail, THUMB_SIZE } from './thumb'
+import { makeThumbnail, makeFaceCrop, THUMB_SIZE, FACE_CROP_SIZE } from './thumb'
 
 export const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.webp'])
 const HASH_CHUNK = 64 * 1024
@@ -148,6 +148,14 @@ export async function scanFolder(
       const thumbPath = path.join(options.thumbDir, `${photoId}.jpg`)
       await makeThumbnail(filePath, thumbPath, THUMB_SIZE)
 
+      // Assign stable face ids first so each crop file can share the face id name.
+      const faceIds = faces.map(() => randomUUID())
+      await Promise.all(
+        faces.map((face, i) =>
+          makeFaceCrop(filePath, path.join(options.thumbDir, `${faceIds[i]}.jpg`), face.bbox, FACE_CROP_SIZE),
+        ),
+      )
+
       let width: number | null = null
       let height: number | null = null
       try {
@@ -160,7 +168,8 @@ export async function scanFolder(
 
       const results = store.addPhotoWithFaces(
         { id: photoId, path: filePath, width, height, thumbPath, contentHash: hash },
-        faces.map((face) => ({
+        faces.map((face, i) => ({
+          id: faceIds[i],
           photoId,
           x1: Math.round(face.bbox[0]),
           y1: Math.round(face.bbox[1]),

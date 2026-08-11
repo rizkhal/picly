@@ -121,3 +121,11 @@ export function listPersonPhotos(services: LocalServices, personId: string, limi
     thumbUrl: p.thumbPath ? `picly://thumb/${path.basename(p.thumbPath)}` : null,
   }))
 }
+
+/** Face crop previews for a set of persons, mapped to picly://face URLs. */
+export function listPersonPreviews(services: LocalServices, ids: string[]): unknown[] {
+  return services.store.listPersonPreviews(ids).map((p) => ({
+    ...p,
+    faceUrl: p.faceId ? `picly://face/${p.faceId}.jpg` : null,
+  }))
+}

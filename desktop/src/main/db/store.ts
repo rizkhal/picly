@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { SCHEMA } from './schema'
 import { blobToEmbedding, cosine, embeddingToBlob } from './vec'
 
-export const CLUSTER_MATCH_THRESHOLD = 0.6
+export const CLUSTER_MATCH_THRESHOLD = 0.5
 export const SEARCH_MIN_SIM = 0.5
 
 export interface AddPhotoInput {
@@ -184,6 +184,25 @@ export class PhotoStore {
          ORDER BY p.created_at DESC LIMIT ?`,
       )
       .all(personId, limit) as Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null }>
+  }
+
+  /** Face preview data for each person: one representative face + its photo path. */
+  listPersonPreviews(ids: string[]): Array<{ personId: string; faceId: string; photoPath: string | null }> {
+    if (ids.length === 0) return []
+    const placeholders = ids.map(() => '?').join(',')
+    // Pick one representative face per person (the earliest inserted via rowid),
+    // avoiding ties from second-resolution created_at timestamps.
+    return this.db
+      .prepare(
+        `SELECT pr.id AS personId, f.id AS faceId, p.path AS photoPath
+         FROM persons pr
+         JOIN faces f ON f.person_id = pr.id
+         JOIN photos p ON p.id = f.photo_id
+         JOIN (SELECT person_id, MIN(rowid) AS rowid FROM faces GROUP BY person_id) first
+           ON first.person_id = f.person_id AND first.rowid = f.rowid
+         WHERE pr.id IN (${placeholders})`,
+      )
+      .all(...ids) as Array<{ personId: string; faceId: string; photoPath: string | null }>
   }
 
   // ------------------------------------------- faces + clustering (mirror backend)

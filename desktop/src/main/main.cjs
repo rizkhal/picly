@@ -29,11 +29,14 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  // Serve cached thumbnails from the local store: picly://thumb/<photoId>.jpg
+  // Serve cached thumbnails + face crops from the local store:
+  //   picly://thumb/<photoId>.jpg  — full-photo thumbnail
+  //   picly://face/<faceId>.jpg    — cropped face preview
   protocol.handle('picly', (req) => {
     try {
       const url = new URL(req.url);
-      if (url.hostname === 'thumb') {
+      const host = url.hostname; // 'thumb' | 'face'
+      if (host === 'thumb' || host === 'face') {
         const name = url.pathname.replace(/^\//, '');
         // Only UUIDs + .jpg — prevents path traversal
         if (!/^[0-9a-f-]{36}\.jpg$/.test(name)) {
@@ -134,6 +137,10 @@ function registerLocalIpc() {
   ipcMain.handle('local:list-person-photos', (_e, personId) => {
     const local = getLocalServices();
     return require('../../dist-main/local.js').listPersonPhotos(local, personId);
+  });
+  ipcMain.handle('local:list-person-previews', (_e, ids) => {
+    const local = getLocalServices();
+    return require('../../dist-main/local.js').listPersonPreviews(local, ids || []);
   });
   ipcMain.handle('local:delete-photo', (_e, photoId) => {
     getLocalServices().store.deletePhoto(photoId);
