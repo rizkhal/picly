@@ -151,7 +151,7 @@ html, body, #root {
 }
 
 .nav-item:hover { background: var(--surface-2); }
-.nav-item.active { background: var(--accent); color: white; }
+.nav-item.active { background: var(--surface-2); }
 
 .nav-item.unavailable .disk-name,
 .nav-item.unavailable .disk-space { opacity: 0.55; }
@@ -191,7 +191,7 @@ html, body, #root {
 }
 
 .disk-item:hover { background: var(--surface-2); }
-.disk-item.active { background: var(--accent); color: white; }
+.disk-item.active { background: var(--surface-2); }
 
 .disk-info { min-width: 0; }
 
@@ -211,8 +211,6 @@ html, body, #root {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-.disk-item.active .disk-path { color: rgba(255,255,255,0.8); }
 
 .disk-space {
   font-size: 11px;
