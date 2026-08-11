@@ -295,7 +295,7 @@ html, body, #root {
 }
 
 .sidebar-header {
-  padding: 16px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -303,8 +303,22 @@ html, body, #root {
 }
 
 .logo {
-  font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
   font-weight: 600;
+  color: var(--accent);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 0 12px;
+  height: 32px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.logo-icon {
   color: var(--accent);
 }
 
@@ -526,7 +540,8 @@ html, body, #root {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 24px;
-  padding: 6px 12px;
+  padding: 0 12px;
+  height: 32px;
 }
 
 .search-wrap:focus-within {

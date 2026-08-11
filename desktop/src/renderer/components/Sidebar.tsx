@@ -1,4 +1,4 @@
-import { Folder, Trash, X, CaretRight, Pause, Play, GearSix } from '@phosphor-icons/react'
+import { Folder, Trash, X, CaretRight, Pause, Play, GearSix, Aperture } from '@phosphor-icons/react'
 import type { Disk, Folder as FolderT, PersonPreview, ScanProgress } from '../types'
 
 type ScanRowProps = {
@@ -119,7 +119,10 @@ export function Sidebar(props: SidebarProps) {
   return (
     <div className="sidebar">
       <div className="sidebar-header">
-        <div className="logo">Picly</div>
+        <div className="logo">
+          <Aperture size={18} weight="fill" className="logo-icon" />
+          <span>Picly</span>
+        </div>
       </div>
 
       {scanError && (
