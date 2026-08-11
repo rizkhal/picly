@@ -1,5 +1,5 @@
-import { ClockCounterClockwise, Video, MapPin, Trash, Folder, X, CaretRight, Pause, Play } from '@phosphor-icons/react'
-import type { AuthStatus, Disk, Folder as FolderT, PersonPreview, ScanProgress } from '../types'
+import { Folder, Trash, X, CaretRight, Pause, Play, GearSix } from '@phosphor-icons/react'
+import type { Disk, Folder as FolderT, PersonPreview, ScanProgress } from '../types'
 
 type ScanRowProps = {
   scan: ScanProgress
@@ -84,8 +84,6 @@ function ScanRow({ scan, onPause, onResume, onRemove, onDismiss }: ScanRowProps)
 
 type SidebarProps = {
   scanError: string | null
-  selectedView: string
-  onSelectView: (view: string) => void
   activeScans: ScanProgress[]
   dismissedScans: Set<string>
   onPause: (scanId: string) => void
@@ -105,19 +103,17 @@ type SidebarProps = {
   onToggleDisk: () => void
   driveStatus: string
   personCount: number
-  authStatus: AuthStatus
-  onLogout: () => void
-  onOpenAuth: (mode: 'login' | 'register') => void
+  onOpenSettings: () => void
 }
 
 export function Sidebar(props: SidebarProps) {
   const {
-    scanError, selectedView, onSelectView,
+    scanError,
     activeScans, dismissedScans, onPause, onResume, onRemove, onDismiss,
     folders, selectedFolder, onFolderClick, onRemoveFolder,
     scanning, onAddFolder,
     disks, selectedDisk, onDiskClick, diskCollapsed, onToggleDisk,
-    driveStatus, personCount, authStatus, onLogout, onOpenAuth,
+    driveStatus, personCount, onOpenSettings,
   } = props
   const visibleScans = activeScans.filter((s) => !dismissedScans.has(s.scan_id))
   return (
@@ -132,26 +128,8 @@ export function Sidebar(props: SidebarProps) {
         </div>
       )}
 
-      {/* Collections + Folders scroll together; sidebar-bottom stays pinned */}
+      {/* Folders + scanning scroll together; sidebar-bottom stays pinned */}
       <div className="sidebar-scroll">
-        {/* Collections */}
-        <div className="sidebar-section">
-          <div className="sidebar-section-title">Collections</div>
-          <div className="nav-list">
-            <div className={`nav-item ${selectedView === 'recents' ? 'active' : ''}`} onClick={() => onSelectView('recents')}>
-              <ClockCounterClockwise size={16} className="nav-icon" /><span>Recents</span>
-            </div>
-            <div className={`nav-item ${selectedView === 'videos' ? 'active' : ''}`} onClick={() => onSelectView('videos')}>
-              <Video size={16} className="nav-icon" /><span>Videos</span>
-            </div>
-            <div className={`nav-item ${selectedView === 'places' ? 'active' : ''}`} onClick={() => onSelectView('places')}>
-              <MapPin size={16} className="nav-icon" /><span>Places</span>
-            </div>
-            <div className={`nav-item ${selectedView === 'trash' ? 'active' : ''}`} onClick={() => onSelectView('trash')}>
-              <Trash size={16} className="nav-icon" /><span>Trash</span>
-            </div>
-          </div>
-        </div>
 
         {/* Scanning — live scan progress (aktif/baru selesai) lives in the sidebar */}
         {visibleScans.length > 0 && (
@@ -232,34 +210,21 @@ export function Sidebar(props: SidebarProps) {
           </div>
         )}
         <div className="sidebar-footer">
-          <div>Status: {driveStatus}</div>
-          <div style={{ marginTop: 4 }}>{personCount} persons indexed</div>
-          {/* Account (auth — optional, entitlement only) */}
-          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-            {authStatus.loggedIn ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
-                <div style={{ fontSize: 12, opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {authStatus.email}
-                </div>
-                <button
-                  onClick={onLogout}
-                  style={{ fontSize: 11, background: 'none', border: 'none', color: '#8b8b8b', cursor: 'pointer', padding: 0 }}
-                  title="Log out"
-                >Logout</button>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  onClick={() => onOpenAuth('login')}
-                  style={{ flex: 1, fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#e8e8e8', cursor: 'pointer' }}
-                >Login</button>
-                <button
-                  onClick={() => onOpenAuth('register')}
-                  style={{ flex: 1, fontSize: 12, padding: '4px 8px', borderRadius: 6, background: 'none', border: '1px solid #3a3a3a', color: '#8b8b8b', cursor: 'pointer' }}
-                >Register</button>
-              </div>
-            )}
+          <div className="sidebar-footer-row">
+            <div className="sidebar-footer-text">
+              <div>Status: {driveStatus}</div>
+              <div style={{ marginTop: 2 }}>{personCount} persons indexed</div>
+            </div>
           </div>
+          {/* Settings — gear in the footer (account moved into Settings page) */}
+          <button
+            className="settings-gear-btn"
+            onClick={onOpenSettings}
+            title="Settings"
+          >
+            <GearSix size={15} weight="bold" />
+            <span>Settings</span>
+          </button>
         </div>
       </div>
     </div>

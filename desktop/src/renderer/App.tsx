@@ -9,6 +9,7 @@ import { Sidebar, FacesBar } from './components/Sidebar'
 import { PhotoGrid, PhotoModal } from './components/PhotoGrid'
 import { AuthModal } from './components/AuthModal'
 import { UpdateBanner } from './components/UpdateBanner'
+import { SettingsPage } from './components/SettingsPage'
 
 export default function App() {
   // Library: disks / folders / persons / photos / faceboxes
@@ -45,13 +46,13 @@ export default function App() {
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null)
   const [selectedDisk, setSelectedDisk] = useState<string | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null)
-  const [selectedView, setSelectedView] = useState<string>('recents')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFacesDetected, setSearchFacesDetected] = useState<number | null>(null)
   const [searchMatchedPersons, setSearchMatchedPersons] = useState<string[]>([])
   const [scanError, setScanError] = useState<string | null>(null)
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [photoIndex, setPhotoIndex] = useState(0)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Disk section collapse — persisted so the choice survives restarts
   const [diskCollapsed, setDiskCollapsed] = useState<boolean>(() => {
@@ -83,7 +84,6 @@ export default function App() {
 
   // Handle person selection
   const handlePersonClick = (personId: string) => {
-    setSelectedView('')
     if (selectedPerson === personId) {
       setSelectedPerson(null)
       setSelectedDisk(null)
@@ -100,7 +100,6 @@ export default function App() {
 
   // Handle disk selection — shows all photos on this disk in the main panel
   const handleDiskClick = (diskPath: string) => {
-    setSelectedView('')
     if (selectedDisk === diskPath) {
       setSelectedDisk(null)
       setSelectedPerson(null)
@@ -116,7 +115,6 @@ export default function App() {
 
   // Handle folder selection — photos are scoped to this folder only
   const handleFolderClick = (folder: Folder) => {
-    setSelectedView('')
     if (selectedFolder?.folder_id === folder.folder_id) {
       setSelectedFolder(null)
       setSelectedPerson(null)
@@ -128,16 +126,6 @@ export default function App() {
       setSelectedDisk(null)
       loadPhotos(null, null, folder.container_path)
     }
-  }
-
-  // Handle sidebar collection click
-  const selectView = (view: string) => {
-    setSelectedView(view)
-    setSelectedPerson(null)
-    setSelectedDisk(null)
-    setSelectedFolder(null)
-    if (view === 'recents') loadPhotos()
-    else setPhotos([])
   }
 
   // Handle search file selection
@@ -153,7 +141,6 @@ export default function App() {
       setSelectedPerson(null)
       setSelectedDisk(null)
       setSelectedFolder(null)
-      setSelectedView('')
     } catch (err) {
       console.error('Search failed', err)
       setScanError('Search gagal — coba lagi.')
@@ -221,8 +208,6 @@ export default function App() {
     <div className="app">
       <Sidebar
         scanError={scanError}
-        selectedView={selectedView}
-        onSelectView={selectView}
         activeScans={activeScans}
         dismissedScans={dismissedScans}
         onPause={pauseScan}
@@ -248,97 +233,110 @@ export default function App() {
         }}
         driveStatus={driveStatus}
         personCount={persons.length}
-        authStatus={authStatus}
-        onLogout={handleLogout}
-        onOpenAuth={(mode) => { setAuthModal(mode); setAuthError(null) }}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       {/* Main content */}
       <div className="main">
-        {/* Update banner — a newer release is available (v1: opens GitHub in browser) */}
-        {updateInfo?.available && !updateDismissed && (
-          <UpdateBanner info={updateInfo} onOpen={openUpdatePage} onDismiss={() => setUpdateDismissed(true)} />
-        )}
-        {/* Scan progress banner — moved to sidebar (scan status is sidebar context) */}
-        <div className="toolbar">
-          <input
-            type="file"
-            ref={fileInputRef}
-            className="search-file-input"
-            accept="image/*"
-            onChange={handleSearchFileChange}
+        {/* Settings page — replaces the main panel content */}
+        {settingsOpen ? (
+          <SettingsPage
+            authStatus={authStatus}
+            onLogout={handleLogout}
+            onOpenAuth={(mode) => { setAuthModal(mode); setAuthError(null) }}
+            updateInfo={updateInfo}
+            onCheckUpdate={() => checkForUpdate(false)}
+            onOpenUpdate={openUpdatePage}
+            onClose={() => setSettingsOpen(false)}
           />
-          <div className="search-wrap">
-            <MagnifyingGlass size={14} className="search-icon" />
-            <input
-              type="text"
-              className="search-input"
-              placeholder="Search your photos…"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value)
-                const q = e.target.value.toLowerCase()
-                if (q) {
-                  setPhotos(prev => prev.filter(p => p.path.toLowerCase().includes(q)))
-                } else {
-                  loadPhotos(selectedPerson || null, selectedDisk || null, selectedFolder?.container_path || null)
-                }
-              }}
-            />
-            <button
-              className="btn search-image-btn"
-              onClick={() => fileInputRef.current?.click()}
-              title="Search by image"
-            >
-              <Camera size={18} />
-            </button>
-          </div>
-        </div>
-
-        {/* Face avatar rail — horizontal scroll nav above the grid */}
-        {persons.length > 0 && (
-          <FacesBar
-            persons={personPreviews.length > 0 ? personPreviews : persons.map((p) => ({ ...p, photo_count: p.photo_count }))}
-            selectedPerson={selectedPerson}
-            onPersonClick={handlePersonClick}
-          />
-        )}
-
-        <div className="content">
-          {loading ? (
-            <div className="loading-overlay">
-              <div className="spinner" />
-            </div>
-          ) : photos.length === 0 ? (
-            <div className="empty">
-              <h3>No photos to show</h3>
-              <p>Scan a folder or search by face to get started.</p>
-            </div>
-          ) : (
-            <>
-              {searchFacesDetected !== null && (
-                <div className="search-summary">
-                  <span className="search-summary-title">
-                    {searchFacesDetected} face{searchFacesDetected === 1 ? '' : 's'} detected
-                  </span>
-                  {searchMatchedPersons.length > 0 && (
-                    <span className="search-summary-persons">
-                      {[...new Set(searchMatchedPersons)].map((name) => (
-                        <span key={name} className="matched-person-chip">{name}</span>
-                      ))}
-                    </span>
-                  )}
-                </div>
-              )}
-              <PhotoGrid
-                photos={photos}
-                selectedPerson={selectedPerson}
-                gridFaceBoxes={gridFaceBoxes}
-                onOpenPhoto={openPhoto}
+        ) : (
+          <>
+            {/* Update banner — a newer release is available (v1: opens GitHub in browser) */}
+            {updateInfo?.available && !updateDismissed && (
+              <UpdateBanner info={updateInfo} onOpen={openUpdatePage} onDismiss={() => setUpdateDismissed(true)} />
+            )}
+            {/* Scan progress banner — moved to sidebar (scan status is sidebar context) */}
+            <div className="toolbar">
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="search-file-input"
+                accept="image/*"
+                onChange={handleSearchFileChange}
               />
-            </>
-          )}
-        </div>
+              <div className="search-wrap">
+                <MagnifyingGlass size={14} className="search-icon" />
+                <input
+                  type="text"
+                  className="search-input"
+                  placeholder="Search your photos…"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value)
+                    const q = e.target.value.toLowerCase()
+                    if (q) {
+                      setPhotos(prev => prev.filter(p => p.path.toLowerCase().includes(q)))
+                    } else {
+                      loadPhotos(selectedPerson || null, selectedDisk || null, selectedFolder?.container_path || null)
+                    }
+                  }}
+                />
+                <button
+                  className="btn search-image-btn"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Search by image"
+                >
+                  <Camera size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Face avatar rail — horizontal scroll nav above the grid */}
+            {persons.length > 0 && (
+              <FacesBar
+                persons={personPreviews.length > 0 ? personPreviews : persons.map((p) => ({ ...p, photo_count: p.photo_count }))}
+                selectedPerson={selectedPerson}
+                onPersonClick={handlePersonClick}
+              />
+            )}
+
+            <div className="content">
+              {loading ? (
+                <div className="loading-overlay">
+                  <div className="spinner" />
+                </div>
+              ) : photos.length === 0 ? (
+                <div className="empty">
+                  <h3>No photos to show</h3>
+                  <p>Scan a folder or search by face to get started.</p>
+                </div>
+              ) : (
+                <>
+                  {searchFacesDetected !== null && (
+                    <div className="search-summary">
+                      <span className="search-summary-title">
+                        {searchFacesDetected} face{searchFacesDetected === 1 ? '' : 's'} detected
+                      </span>
+                      {searchMatchedPersons.length > 0 && (
+                        <span className="search-summary-persons">
+                          {[...new Set(searchMatchedPersons)].map((name) => (
+                            <span key={name} className="matched-person-chip">{name}</span>
+                          ))}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <PhotoGrid
+                    photos={photos}
+                    selectedPerson={selectedPerson}
+                    gridFaceBoxes={gridFaceBoxes}
+                    onOpenPhoto={openPhoto}
+                  />
+                </>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Photo modal — full-res source + face overlay + reveal in Finder */}
