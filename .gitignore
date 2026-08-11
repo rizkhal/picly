@@ -3,6 +3,7 @@ node_modules/
 desktop/node_modules/
 dist/
 desktop/dist/
+desktop/dist-main/
 desktop/out/
 *.log
 
