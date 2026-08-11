@@ -109,7 +109,9 @@ const runningScans = new Map();
 
 function getLocalServices() {
   if (!localServices) {
-    const { createLocalServices } = require('../dist-main/local.js');
+    // dist-main is a sibling of src/ (tsc outDir) — from src/main, that's ../../dist-main
+    const target = path.resolve(__dirname, '../../dist-main/local.js');
+    const { createLocalServices } = require(target);
     const dataDir = path.join(app.getPath('userData'), 'data');
     localServices = createLocalServices({
       dbPath: path.join(dataDir, 'picly.db'),
@@ -126,12 +128,12 @@ function registerLocalIpc() {
   ipcMain.handle('local:list-persons', () => getLocalServices().store.listPersons());
   ipcMain.handle('local:list-photos', (_e, folderPath) => {
     const local = getLocalServices();
-    const rows = require('../dist-main/local.js').listPhotos(local, folderPath || undefined);
+    const rows = require('../../dist-main/local.js').listPhotos(local, folderPath || undefined);
     return rows.map((p) => ({ ...p, thumbUrl: p.thumbPath ? `picly://thumb/${path.basename(p.thumbPath)}` : null }));
   });
   ipcMain.handle('local:list-person-photos', (_e, personId) => {
     const local = getLocalServices();
-    return require('../dist-main/local.js').listPersonPhotos(local, personId);
+    return require('../../dist-main/local.js').listPersonPhotos(local, personId);
   });
   ipcMain.handle('local:delete-photo', (_e, photoId) => {
     getLocalServices().store.deletePhoto(photoId);
@@ -144,15 +146,15 @@ function registerLocalIpc() {
   ipcMain.handle('local:delete-folder', (_e, hostPath) => getLocalServices().store.deleteFolder(hostPath));
 
   ipcMain.handle('local:search-photo', async (_e, photoPath) => {
-    return require('../dist-main/local.js').searchPhoto(getLocalServices(), photoPath);
+    return require('../../dist-main/local.js').searchPhoto(getLocalServices(), photoPath);
   });
   ipcMain.handle('local:search-stored-photo', async (_e, photoId) => {
-    return require('../dist-main/local.js').searchStoredPhoto(getLocalServices(), photoId);
+    return require('../../dist-main/local.js').searchStoredPhoto(getLocalServices(), photoId);
   });
 
   ipcMain.handle('local:scan-folder', (e, folderPath) => {
     const win = BrowserWindow.fromWebContents(e.sender);
-    const { scanId, cancel, done } = require('../dist-main/local.js').startScan(
+    const { scanId, cancel, done } = require('../../dist-main/local.js').startScan(
       getLocalServices(),
       folderPath,
       (p) => {
