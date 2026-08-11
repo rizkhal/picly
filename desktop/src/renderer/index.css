@@ -713,36 +713,14 @@ html, body, #root {
   padding: 40px;
 }
 
-/* Scan progress — live per-folder bars while background scans run */
-.scan-progress {
-  padding: 10px 16px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+/* Scan progress — live per-folder bars, shown inside the sidebar's Scanning section.
+   No own max-height/scroll: it rides along .sidebar-scroll so items never get
+   clipped by a nested scroll container. */
+.scan-progress.sidebar {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-height: 320px;
-  overflow-y: auto;
-}
-
-/* Sidebar variant — scan status is sidebar context now, compact */
-.scan-progress.sidebar {
-  padding: 6px 2px 2px;
-  background: none;
-  border: none;
-  max-height: 240px;
   gap: 8px;
-}
-
-.scan-progress-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
+  padding: 2px 2px 2px;
 }
 
 .scan-item {
