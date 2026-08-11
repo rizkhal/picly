@@ -518,6 +518,8 @@ export default function App() {
           </div>
         )}
 
+        {/* Collections + Folders scroll together; sidebar-bottom stays pinned */}
+        <div className="sidebar-scroll">
         {/* Collections */}
         <div className="sidebar-section">
           <div className="sidebar-section-title">Collections</div>
@@ -570,6 +572,7 @@ export default function App() {
               </div>
             ))}
           </div>
+        </div>
         </div>
 
         {/* Bottom: pinned disk list + API status */}

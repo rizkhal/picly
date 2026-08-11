@@ -34,6 +34,14 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  overflow: hidden; /* let .sidebar-scroll handle overflow, keep bottom pinned */
+}
+
+/* Scrollable middle region (Collections + Folders); the bottom block stays pinned */
+.sidebar-scroll {
+  flex: 1;
+  min-height: 0; /* allow shrinking inside flex column */
+  overflow-y: auto;
 }
 
 .sidebar-section {
