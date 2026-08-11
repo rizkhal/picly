@@ -1,102 +1,48 @@
 # Picly
 
-Face search from local drives. Desktop + mobile, no cloud required.
+Face search from local drives. Desktop app, no cloud required.
 
 ## Stack
 
-- **ML engine**: InsightFace `buffalo_l` (CPU)
-- **API**: FastAPI (`/scan`, `/search`, `/person`, `/person/:id/photos`, `/thumb/:id`, `/stats`)
-- **Database**: PostgreSQL 16 + pgvector (HNSW index) + cosine similarity search
-- **Desktop**: Electron + React (see `desktop/`) — ML pipeline runs natively in Node via ONNX Runtime (Phase 1 complete, see below)
+- **ML engine**: InsightFace `buffalo_l` (CPU) — run natively in the desktop via **ONNX Runtime** (`onnxruntime-node`), ported 1:1 from the Python reference (`desktop/src/main/ml/`)
+- **Storage**: local **SQLite** (`desktop/src/main/db/`) — photos, faces, persons, embeddings (BLOB) + JS cosine search
+- **Scanner**: local, hash dedup + thumbnails + centroid clustering (`desktop/src/main/scanner.ts`)
+- **Desktop**: Electron + React (see `desktop/`) — **100% local, works fully offline**
+- **Backend**: minimal **Hono** service (`backend/`) — **only for in-app update manifest** (`GET /app/update`)
 - **Mobile**: PWA (planned)
 
-## Quick start with Docker
+## Run the desktop app (local, no backend needed)
 
 ```bash
-# 1. Clone + cd
-git clone git@github.com:rizkhal/picly.git && cd picly
-
-# 2. Copy env
-cp .env.example .env
-
-# 3. Start
-docker compose up -d
-
-# 4. Scan — the desktop app's "+ Add folder" maps any host folder into the
-#    container (via read-only host mounts under /host) and scans it in place —
-#    no copying. CLI equivalent (host /Volumes/MyDrive/photos appears at
-#    /host/Volumes/MyDrive/photos):
-curl -X POST "http://localhost:8000/scan" -F "folder=/host/Volumes/MyDrive/photos"
-
-# 5. Search
-curl -X POST "http://localhost:8000/search" -F "file=@query.jpg"
+cd desktop
+npm install          # postinstall compiles better-sqlite3 for host + Electron ABI
+npm run electron:dev # compile local services + run the app (needs a GUI session)
 ```
 
-## API
+> The ML models are read from `~/.insightface/models` (override with `PICLY_MODELS_DIR`).
+> No Python, Docker, or backend is required for scan/search/browse — everything is local.
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/scan` | Scan folder, detect faces, auto-cluster (registers the folder; returns a `scan_id`) |
-| `GET` | `/scan/status/:id` | Live scan progress (`processed`/`total`, current file) — poll while scanning |
-| `POST` | `/scan/:id/cancel` | Stop a queued or running scan |
-| `DELETE` | `/folder/:id` | Remove a folder and all photos indexed under it |
-| `POST` | `/search` | Search by uploaded face image |
-| `GET` | `/folders` | List added folders with photo counts + availability |
-| `GET` | `/photos?folder_path=` | List photos, optionally scoped to a folder |
-| `GET` | `/config` | Host-mount mapping for the desktop app |
-| `GET` | `/person` | List known persons |
-| `GET` | `/person/:id/photos` | Photos for person |
-| `PATCH` | `/person/:id/rename` | Rename person |
-| `DELETE` | `/person/:id` | Delete person |
-| `DELETE` | `/photo/:id` | Delete photo |
-| `GET` | `/thumb/:id` | Serve cached thumbnail |
-| `GET` | `/stats` | DB statistics |
-| `GET` | `/health` | Status |
-| `GET` | `/ready` | Readiness probe |
+## Backend (in-app update only)
+
+The desktop checks for a newer release against the Hono service:
+
+```bash
+cd backend
+bun install
+bun run src/index.ts   # serves GET /app/update, /app/update/check, /health
+```
+
+Or via Docker: `docker compose up -d --build` (binds `127.0.0.1:8000`).
+
+The manifest (version/url/notes) lives in `backend/src/update.ts` — bump it when releasing.
 
 ## Env vars
 
 | Var | Default | Description |
 |---|---|---|
-| `POSTGRES_PASSWORD` | `picly` | Postgres password |
-| `PICLY_API_KEY` | empty | Optional API key auth |
-| `THUMB_DIR` | `/tmp/picly_thumbs` | Thumbnail cache dir |
-| `THUMB_SIZE` | `300` | Thumbnail size in px |
-| `UPLOAD_DIR` | `/tmp/picly_uploads` | Upload temp dir |
-
-## Architecture
-
-```
-Desktop App                    Picly API
-     │                              │
-     │── POST /scan ──────────────▶│
-     │   folder=/mnt/ssd/photos    │
-     │◀── ScanStatus ──────────────│
-     │                              │
-     │── GET /person/:id/photos ──▶│
-     │◀── photos + thumb_paths ────│
-     │                              │
-     │── GET /thumb/:id ──────────▶│
-     │◀── JPEG thumbnail ──────────│
-     │                              │
-```
-
-### Desktop responsibilities
-- Detect drive mount/unmount
-- Resolve photo paths dynamically
-- Trigger scan when drive connects
-- Serve original full-res photos when available
-- Graceful offline mode when drive disconnected
-
-### Mobile responsibilities
-- Consume REST API only
-- No drive management needed
-- Works via PWA or native wrapper
-
-### Offline behavior
-- If drive disconnected → API still returns thumbnails + metadata
-- Original paths may be stale → desktop should validate before opening
-- Search/cluster/rename still work without drive connected
+| `PICLY_MODELS_DIR` | `~/.insightface/models` | ONNX model dir (`buffalo_l`) |
+| `PICLY_API_KEY` | empty | Optional API key auth for the update backend |
+| `PORT` (backend) | `8000` | Backend listen port |
 
 ## Desktop ML pipeline (Node / ONNX Runtime)
 
@@ -112,9 +58,11 @@ Verified against the Python reference with golden fixtures:
 cd desktop && bun run verify:pipeline   # IoU ~0.999, cosSim ~0.9999, umeyama M diff ~1e-5
 ```
 
-- Fixtures: `desktop/src/main/ml/__fixtures__/golden.json` (bbox/kps/M/embedding per face).
-- Regenerate from the running Python backend:
-  `docker cp services/face-search/scripts/gen_fixtures.py picly-api-1:/tmp/ && docker exec picly-api-1 python3 /tmp/gen_fixtures.py --photos <host paths...> --out /tmp/golden.json`
+- Fixtures: `docs/ml-parity/golden.json` (bbox/kps/M/embedding per face).
+- Regenerate from the archived Python reference (kept under `docs/ml-parity/` for
+  provenance — the desktop itself runs fully on ONNX and never needs Python):
+  `cd docs/ml-parity && <run gen_fixtures.py inside the old picly-api container or any
+  insightface 0.7.3 env, see script header> --photos <host paths...> --out golden.json`
 - Models are read from `~/.insightface/models` (override with `PICLY_MODELS_DIR`).
 - Pipeline is config-driven (`desktop/src/main/ml/config.ts`) — switching to the
   lighter `buffalo_s` pack later = new model paths + regenerate fixtures, no code change.
@@ -131,7 +79,7 @@ The DB lives under `desktop/data/` (gitignored). Test harnesses:
 cd desktop
 bun run scan:test      # scan ~/picly-photos-local: dedup + search + self-match
 bun run cluster:test   # 6 LFW people x 4 photos: cluster purity + coverage
-bun run parity:cluster # dump assignments; diff vs services/face-search/scripts/parity_cluster.py
+bun run parity:cluster # dump assignments; diff vs docs/ml-parity/parity_cluster.py
 ```
 
 Search is **multi-face**: a query photo with several people searches with ALL
@@ -154,7 +102,7 @@ The **renderer is 100% local** — every action (scan, search, browse, rename,
 delete, thumbnails) goes through the SQLite store + ONNX pipeline. **No Python
 backend / Docker is required** to run the desktop app; it works fully offline.
 
-The backend (`services/face-search`) is now only for **in-app update**: the
+The backend (`backend/`, Hono) is now only for **in-app update**: the
 desktop checks `GET /app/update` (via `app:check-update` IPC) for a newer release
 manifest. Everything else is local.
 
@@ -175,39 +123,9 @@ slot `bindings` loads — `bun run electron:*` select electron, test scripts sel
 host Node. (Node 24's ABI is 137; Electron 33's is 130 — the two can never share
 one binary.)
 
-## Storage model
-
-| Component | Storage |
-|---|---|
-| Postgres DB + embeddings | ~50–150MB |
-| Thumb cache (300px JPEG) | ~30–80KB per photo |
-| 10k photos | ~400MB thumb cache |
-| 100k photos | ~4–8GB thumb cache |
-| Original photos | 0 bytes on server |
-
 ## Notes
 
-- Storage: PostgreSQL + pgvector (HNSW indexes on `faces.embedding_vector` and `persons.embedding_centroid_vector`) for vector search
-- Face clustering: centroid-based with running average; nearest-person match via pgvector (HNSW)
+- Storage is fully local: SQLite under `desktop/data/` (gitignored) — thumbnails cached as 300px JPEG
+- Face clustering: centroid-based with running average (threshold 0.6), done at scan time
 - Drive handling is **desktop app responsibility**, not backend
-### Host mounts (why "+ Add folder" can fail)
-
-`docker-compose.yml` mounts two host roots read-only into the API container under
-`/host`: `/Volumes` (all external drives) and `$HOME` (the user folder). The desktop
-app maps any picked folder inside those roots and scans it in place — no copying.
-
-- **Docker Desktop (macOS)** auto-mounts both paths — nothing to configure.
-- **Colima/Lima (QEMU)** only exposes `$HOME` by default, and *setting* `mounts` in
-  `~/.colima/default/colima.yaml` replaces that default. List **both** roots:
-  ```yaml
-  mounts:
-    - location: /Volumes
-      writable: false
-    - location: /Users/you
-      writable: true
-  ```
-  then `colima restart`. If you see only the VM's own filesystem under `/host`
-  (or a stale snapshot), this is the fix.
-- Colima's sshfs cannot bind-mount individual files, so the DB init script is mounted
-  as a directory (`services/face-search/initdb/`).
-- For production: use reverse proxy, enable `PICLY_API_KEY`, bind to private network only
+- Models live in `~/.insightface/models/buffalo_l/` (det_10g.onnx + w600k_r50.onnx) — required for scan/search

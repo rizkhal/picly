@@ -1,6 +1,6 @@
 /**
  * SQLite schema for the local desktop store — ported from the Postgres
- * backend (services/face-search/initdb/init.sql). Differences:
+ * backend (see docs/ml-parity/ and backend/ for provenance). Differences:
  *  - no container_path on folders (desktop is standalone)
  *  - embeddings stored as BLOB (512 float32 LE) instead of pgvector columns;
  *    search happens in JS (see store.ts / vec.ts)

@@ -15,7 +15,7 @@ export interface DetectedFace {
   embedding: Float32Array
 }
 
-/** Golden fixture shape produced by services/face-search/scripts/gen_fixtures.py. */
+/** Golden fixture shape produced by docs/ml-parity/gen_fixtures.py (Python insightface reference). */
 export interface GoldenFixtureFace {
   bbox: number[]
   det_score: number

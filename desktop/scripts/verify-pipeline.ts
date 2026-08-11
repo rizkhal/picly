@@ -9,6 +9,9 @@
  *   - self-consistency    cosSim > 0.999 when the same image runs twice
  *
  * Run: bun run verify:pipeline   (or: npx tsx scripts/verify-pipeline.ts)
+ *
+ * Fixtures (golden.json) live in docs/ml-parity/ — generated once from the Python
+ * insightface reference (see docs/ml-parity/gen_fixtures.py), then frozen.
  */
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -64,10 +67,9 @@ async function main(): Promise<void> {
   const fixturesDir = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
     '..',
-    'src',
-    'main',
-    'ml',
-    '__fixtures__',
+    '..',
+    'docs',
+    'ml-parity',
   )
   const golden = JSON.parse(await readFile(path.join(fixturesDir, 'golden.json'), 'utf8')) as GoldenFixture
   const photos: GoldenFixturePhoto[] = golden.photos
