@@ -894,16 +894,6 @@ export default function App() {
                     {photo.similarity !== undefined && (
                       <div className="similarity">{Math.round(photo.similarity * 100)}%</div>
                     )}
-                    {photo.person_id && (
-                      <div className="person-badge">
-                        {persons.find(p => p.person_id === photo.person_id)?.name || 'Unknown'}
-                      </div>
-                    )}
-                    {photo.matched_persons && photo.matched_persons.length > 0 && (
-                      <div className="matched-persons-badge">
-                        {photo.matched_persons.join(' · ')}
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>

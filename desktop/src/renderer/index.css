@@ -499,32 +499,6 @@ html, body, #root {
   font-weight: 600;
 }
 
-.photo-card .person-badge {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
-  background: rgba(0,0,0,0.7);
-  color: white;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-}
-
-.photo-card .matched-persons-badge {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-  background: rgba(0,0,0,0.75);
-  color: #7cc0ff;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  max-width: 60%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* Search summary — faces detected + matched persons chips above the grid */
 .search-summary {
   display: flex;
