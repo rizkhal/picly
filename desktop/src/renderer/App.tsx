@@ -179,9 +179,9 @@ export default function App() {
         .filter((p: any) => (p.photoCount ?? p.photo_count ?? 0) > 0)
         .map((p: any) => ({ person_id: p.personId || p.person_id, name: p.name, photo_count: p.photoCount ?? p.photo_count ?? 0 }))
       setPersons(livePersons)
-      // Face previews: use the first photo thumbnail of each top person (local)
+      // Face previews: use the first photo thumbnail of each person (local)
       const previews: Array<{ person_id: string; name: string; photo_count: number; face_id?: string }> = []
-      const top = livePersons.slice().sort((a: any, b: any) => (b.photo_count || 0) - (a.photo_count || 0)).slice(0, 12)
+      const top = livePersons.slice().sort((a: any, b: any) => (b.photo_count || 0) - (a.photo_count || 0))
       await Promise.all(top.map(async (p: any) => {
         try {
           const photos = await electronApi.local.listPersonPhotos(p.person_id, 1)
