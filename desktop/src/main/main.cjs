@@ -196,9 +196,11 @@ ipcMain.handle('app:check-update', async () => {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return { available: false, error: `HTTP ${res.status}` };
-    const manifest = await res.json();
+    const body = await res.json();
+    // Endpoint returns { available, manifest: { version, url, notes } }
+    const manifest = body.manifest || body;
     const current = app.getVersion();
-    const available = !!(manifest && manifest.version && manifest.version !== current);
+    const available = !!(manifest.version && manifest.version !== current);
     return { available, current, latest: manifest.version || null, url: manifest.url || null, notes: manifest.notes || null };
   } catch (e) {
     return { available: false, error: String(e && e.message ? e.message : e) };

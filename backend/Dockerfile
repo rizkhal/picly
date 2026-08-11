@@ -1,0 +1,19 @@
+# Picly backend (Hono) — in-app update service
+# Build: docker build -f backend/Dockerfile -t picly-backend .
+FROM oven/bun:1.3-alpine AS build
+
+WORKDIR /app
+COPY backend/package.json backend/bun.lock* ./
+RUN bun install --frozen-lockfile
+
+COPY backend/src ./src
+
+# Minimal runtime image (only the compiled/run deps)
+FROM oven/bun:1.3-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/src ./src
+
+EXPOSE 8000
+CMD ["bun", "run", "src/index.ts"]
