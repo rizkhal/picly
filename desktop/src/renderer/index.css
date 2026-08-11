@@ -42,6 +42,7 @@ html, body, #root {
   flex: 1;
   min-height: 0; /* allow shrinking inside flex column */
   overflow-y: auto;
+  overflow-x: hidden; /* never show a horizontal scrollbar in the sidebar */
 }
 
 .sidebar-section {
@@ -721,12 +722,16 @@ html, body, #root {
   flex-direction: column;
   gap: 8px;
   padding: 2px 2px 2px;
+  min-width: 0; /* allow children to shrink below intrinsic width */
+  overflow: hidden; /* clip anything that would escape the sidebar */
 }
 
 .scan-item {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .scan-item-top {
@@ -734,6 +739,7 @@ html, body, #root {
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
 }
 
 .scan-folder-name {
@@ -743,6 +749,8 @@ html, body, #root {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0; /* let the name truncate instead of pushing actions out */
+  flex: 1 1 auto;
 }
 
 .scan-item-status {
@@ -759,6 +767,7 @@ html, body, #root {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0; /* keep the summary line inside the sidebar */
 }
 
 .scan-done-line { color: var(--success); }
