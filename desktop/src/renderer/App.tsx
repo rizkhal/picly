@@ -51,7 +51,7 @@ export default function App() {
   const [searchMatchedPersons, setSearchMatchedPersons] = useState<string[]>([])
   const [scanError, setScanError] = useState<string | null>(null)
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
-  const [photoZoom, setPhotoZoom] = useState(1)
+  const [photoIndex, setPhotoIndex] = useState(0)
 
   // Disk section collapse — persisted so the choice survives restarts
   const [diskCollapsed, setDiskCollapsed] = useState<boolean>(() => {
@@ -189,10 +189,11 @@ export default function App() {
     loadPhotos(scopeRef.current.person, null, scopeRef.current.folder)
   }
 
-  // Open a photo in the detail modal — full-res source + zoom + reveal in Finder
+  // Open a photo in the detail modal — full-res source + reveal in Finder
   const openPhoto = (photo: Photo) => {
+    const idx = photos.findIndex((p) => p.photo_id === photo.photo_id)
     setSelectedPhoto(photo)
-    setPhotoZoom(1)
+    setPhotoIndex(idx >= 0 ? idx : 0)
   }
 
   // Delete photo + refresh current scope
@@ -209,10 +210,11 @@ export default function App() {
     loadFolders()
   }
 
-  // Open photo in detail modal — full-res source + zoom + reveal in Finder.
-  // (Grid face boxes were already loaded when the person filter was selected.)
-  const openPhotoAndBoxes = (photo: Photo) => {
-    openPhoto(photo)
+  // Navigate the modal to another photo in the current scope (keyboard/rail)
+  const handleNavigate = (index: number) => {
+    if (index < 0 || index >= photos.length) return
+    setPhotoIndex(index)
+    setSelectedPhoto(photos[index])
   }
 
   return (
@@ -332,7 +334,7 @@ export default function App() {
                 photos={photos}
                 selectedPerson={selectedPerson}
                 gridFaceBoxes={gridFaceBoxes}
-                onOpenPhoto={openPhotoAndBoxes}
+                onOpenPhoto={openPhoto}
               />
             </>
           )}
@@ -343,8 +345,9 @@ export default function App() {
       {selectedPhoto && (
         <PhotoModal
           photo={selectedPhoto}
-          photoZoom={photoZoom}
-          onSetZoom={setPhotoZoom}
+          photos={photos}
+          index={photoIndex}
+          onNavigate={handleNavigate}
           onClose={() => setSelectedPhoto(null)}
           onOpenLocation={ipc.shell.showItem}
           onDeletePhoto={handleDeletePhoto}
