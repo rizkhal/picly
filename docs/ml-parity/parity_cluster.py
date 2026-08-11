@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Clustering parity reference (runs inside the picly-api container).
+"""Clustering parity reference (any insightface 0.7.3 + onnxruntime env).
 
 Replicates the scan-time clustering (centroid running average, cosine
 threshold 0.6) over the same 24 LFW photos that desktop/scripts/parity-cluster.ts
@@ -7,9 +7,8 @@ scans, using RAW-kps embeddings (no 2d106det refinement) so the Node and Python
 embeddings are identical. Prints "photo personIndex" per face.
 
 Usage:
-  docker cp services/face-search/scripts/parity_cluster.py picly-api-1:/tmp/
-  docker exec picly-api-1 python3 /tmp/parity_cluster.py > /tmp/parity-py.txt
-  docker cp picly-api-1:/tmp/parity-py.txt desktop/data/parity-py.txt
+  python3 parity_cluster.py > parity-py.txt
+  # then diff against desktop/data/parity-node.txt from `bun run parity:cluster`
 """
 import os
 import sys

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate golden reference fixtures for the Node.js ML pipeline port.
 
-Runs INSIDE the picly-api container (insightface 0.7.3, buffalo_l, det_size
-640x640 — same config as the app) and writes, per detected face:
+Runs in any insightface 0.7.3 + onnxruntime env (originally the picly-api
+container) with buffalo_l and det_size 640x640 — same config as the app — and
+writes, per detected face:
 
   - bbox          : raw SCRFD bbox (float, original image coords)
   - det_score     : detection confidence
@@ -16,11 +17,9 @@ Runs INSIDE the picly-api container (insightface 0.7.3, buffalo_l, det_size
                     informational parity checks only (~0.98 vs Node pipeline)
 
 Usage:
-  docker cp services/face-search/scripts/gen_fixtures.py picly-api-1:/tmp/
-  docker exec picly-api-1 python3 /tmp/gen_fixtures.py \
-      --photos /Users/rizkal/picly-photos-local/man_001.jpg ... \
-      --out /tmp/golden.json
-  docker cp picly-api-1:/tmp/golden.json desktop/src/main/ml/__fixtures__/golden.json
+  (any host with insightface 0.7.3 + onnxruntime + opencv; needs the app's
+  face_app equivalent — see app/ml.py in the archived services/ tree)
+  python3 gen_fixtures.py --photos <host paths...> --out golden.json
 """
 import argparse
 import json
@@ -126,7 +125,7 @@ def main() -> None:
     with open(args.out, "w") as f:
         json.dump(
             {
-                "generated_by": "services/face-search/scripts/gen_fixtures.py",
+                "generated_by": "docs/ml-parity/gen_fixtures.py",
                 "reference": "insightface 0.7.3 buffalo_l det_size=(640,640)",
                 "photos": entries,
             },
