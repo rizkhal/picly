@@ -173,6 +173,19 @@ export class PhotoStore {
       .all(...params)
   }
 
+  /** Photos belonging to one person (via its faces), newest first. */
+  listPhotosForPerson(personId: string, limit = 500): Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null }> {
+    return this.db
+      .prepare(
+        `SELECT DISTINCT p.id AS photoId, p.path, p.thumb_path AS thumbPath, p.width, p.height
+         FROM faces f
+         JOIN photos p ON p.id = f.photo_id
+         WHERE f.person_id = ?
+         ORDER BY p.created_at DESC LIMIT ?`,
+      )
+      .all(personId, limit) as Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null }>
+  }
+
   // ------------------------------------------- faces + clustering (mirror backend)
 
   /**

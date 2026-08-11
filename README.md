@@ -142,13 +142,21 @@ Clustering is byte-for-byte parity with the Python backend (27/28 face
 assignments identical on the parity set; the 1 remaining flip is a near-threshold
 0.6 decision, expected from the accepted sub-pixel warp differences).
 
-### Electron integration (Fase 3)
+### Electron integration (Fase 3) — fully local, no backend
 
 `desktop/src/main/main.cjs` wires local IPC handlers over the compiled services
-(`dist-main/local.js`, from `src/main/local.ts`): scan folder with live progress,
-search by photo, list folders/persons/photos, rename/delete, and a `picly://thumb/`
-protocol handler that serves cached thumbnails to the renderer. No Python backend
-is required for scan/search anymore.
+(`dist-main/local.js`, from `src/main/local.ts`): scan folder with live progress
+(streamed via IPC events, no polling), search by photo, list folders/persons/photos,
+rename/delete, and a `picly://thumb/` protocol handler that serves cached thumbnails
+to the renderer.
+
+The **renderer is 100% local** — every action (scan, search, browse, rename,
+delete, thumbnails) goes through the SQLite store + ONNX pipeline. **No Python
+backend / Docker is required** to run the desktop app; it works fully offline.
+
+The backend (`services/face-search`) is now only for **in-app update**: the
+desktop checks `GET /app/update` (via `app:check-update` IPC) for a newer release
+manifest. Everything else is local.
 
 ```bash
 cd desktop

@@ -113,3 +113,11 @@ export function searchStoredPhoto(services: LocalServices, photoId: string, limi
 export function listPhotos(services: LocalServices, folderPath?: string, limit = 500, offset = 0): unknown[] {
   return services.store.listPhotos(folderPath, limit, offset)
 }
+
+/** Photos scoped to a person (via faces), thumbnails mapped to picly:// URLs. */
+export function listPersonPhotos(services: LocalServices, personId: string, limit = 500): unknown[] {
+  return services.store.listPhotosForPerson(personId, limit).map((p) => ({
+    ...p,
+    thumbUrl: p.thumbPath ? `picly://thumb/${path.basename(p.thumbPath)}` : null,
+  }))
+}

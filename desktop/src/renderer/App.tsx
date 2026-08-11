@@ -1,25 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { ClockCounterClockwise, Video, MapPin, Trash, Folder, MagnifyingGlass, Camera, X } from '@phosphor-icons/react'
 
-let API_BASE = 'http://localhost:8000'
-let API_KEY = ''
-
-// electron preload exposes IPC wrappers that return Promises — resolve them once.
-const electronApi = (window as any).electron
-if (electronApi?.getApiBase) {
-  electronApi.getApiBase().then((b: string) => { API_BASE = b })
-  electronApi.getApiKey().then((k: string) => { API_KEY = k })
-}
-
-const jsonHeaders = () => ({
-  'Content-Type': 'application/json',
-  'X-API-Key': API_KEY,
-})
-
-const multipartHeaders = () => ({
-  'X-API-Key': API_KEY,
-})
-
 type Person = { person_id: string; name: string; photo_count: number }
 type Photo = { photo_id: string; path: string; thumb_path?: string; similarity?: number; person_id?: string; person_name?: string; face_id?: string; matched_persons?: string[] }
 type Disk = { name: string; path: string; free_gb?: number; total_gb?: number }
@@ -67,53 +48,65 @@ export default function App() {
   // A scan is in flight until every tracked scan has finished
   const scanning = activeScans.some((s) => s.status === 'queued' || s.status === 'running')
 
-  // Load disks — prefer real host mounts via Electron, fall back to API
+  // Load disks — real host mounts via Electron (no backend)
   const loadDisks = async () => {
     try {
       const electronApi = (window as any).electron
       if (electronApi?.listDisks) {
         const disks = await electronApi.listDisks()
-        if (disks && disks.length > 0) { setDisks(disks); return }
+        if (disks && disks.length > 0) setDisks(disks)
       }
-      const res = await fetch(`${API_BASE}/disks`, { headers: jsonHeaders() })
-      const data = await res.json()
-      setDisks(data.roots || [])
     } catch (e) {
       console.error('Failed to load disks', e)
     }
   }
 
-  // Load folders added via '+ Add folder'
+  // Load folders added via '+ Add folder' (local store)
   const loadFolders = async () => {
     try {
-      const res = await fetch(`${API_BASE}/folders`, { headers: jsonHeaders() })
-      const data = await res.json()
-      setFolders(data.folders || [])
+      const electronApi = (window as any).electron
+      if (!electronApi?.local?.listFolders) return
+      const rows = await electronApi.local.listFolders()
+      // Normalize snake_case (legacy) -> camelCase used by the UI
+      setFolders((rows || []).map((f: any) => ({
+        folder_id: f.folderId || f.folder_id,
+        host_path: f.hostPath || f.host_path,
+        name: f.name,
+        photo_count: f.photoCount ?? f.photo_count ?? 0,
+        container_path: f.hostPath || f.host_path,
+        available: true,
+      })))
     } catch (e) {
       console.error('Failed to load folders', e)
     }
   }
 
-  // Load persons
+  // Load persons (local store) + face previews (first photo of each person)
   const loadPersons = async () => {
     try {
-      const res = await fetch(`${API_BASE}/person`, { headers: jsonHeaders() })
-      const data = await res.json()
-      // Only keep persons that still have photos (deleted ones should vanish from the face rail)
-      const livePersons = (data.persons || []).filter((p: any) => (p.photo_count || 0) > 0)
+      const electronApi = (window as any).electron
+      if (!electronApi?.local?.listPersons) return
+      const rows = await electronApi.local.listPersons()
+      const livePersons = (rows || [])
+        .filter((p: any) => (p.photoCount ?? p.photo_count ?? 0) > 0)
+        .map((p: any) => ({ person_id: p.personId || p.person_id, name: p.name, photo_count: p.photoCount ?? p.photo_count ?? 0 }))
       setPersons(livePersons)
-      const sorted = livePersons.slice().sort((a: any, b: any) => (b.photo_count || 0) - (a.photo_count || 0))
-      // Load face previews for top persons
-      const previewIds = sorted.slice(0, 12).map((p: any) => p.person_id)
-      if (previewIds.length) {
+      // Face previews: use the first photo thumbnail of each top person (local)
+      const previews: Array<{ person_id: string; name: string; photo_count: number; face_id?: string }> = []
+      const top = livePersons.slice().sort((a: any, b: any) => (b.photo_count || 0) - (a.photo_count || 0)).slice(0, 12)
+      await Promise.all(top.map(async (p: any) => {
         try {
-          const res2 = await fetch(`${API_BASE}/person/previews?limit=12`, { headers: jsonHeaders() })
-          const data2 = await res2.json()
-          setPersonPreviews(data2.persons || [])
-        } catch (e) {
-          console.error('Failed to load person previews', e)
+          const photos = await electronApi.local.listPersonPhotos(p.person_id, 1)
+          if (photos && photos.length > 0 && photos[0].thumbUrl) {
+            previews.push({ ...p, face_id: photos[0].photoId })
+          } else {
+            previews.push(p)
+          }
+        } catch {
+          previews.push(p)
         }
-      }
+      }))
+      setPersonPreviews(previews)
     } catch (e) {
       console.error('Failed to load persons', e)
     }
@@ -125,130 +118,98 @@ export default function App() {
     setLoading(true)
     try {
       const electronApi = (window as any).electron
-      if (electronApi?.local?.searchPhoto) {
-        const filePath = (searchFile as any).path
-        const data = await electronApi.local.searchPhoto(filePath)
-        setPhotos((data.hits || []).map((h: any) => ({
-          photo_id: h.photoId,
-          path: h.path,
-          thumb_path: h.thumbUrl,
-          similarity: h.similarity,
-          person_id: h.personId,
-          person_name: h.personName,
-          matched_persons: h.matchedPersons || [],
-        })))
-        setSearchFacesDetected(data.facesDetected ?? null)
-        setSearchMatchedPersons((data.hits || []).flatMap((h: any) => h.matchedPersons || []))
-      } else {
-        // Fallback: legacy API path (no local services)
-        const form = new FormData()
-        form.append('file', searchFile)
-        form.append('threshold', '0.5')
-        form.append('limit', '50')
-        const res = await fetch(`${API_BASE}/search`, { method: 'POST', headers: multipartHeaders(), body: form })
-        const data = await res.json()
-        setPhotos(data.results || [])
-        setSearchFacesDetected(null)
-        setSearchMatchedPersons([])
+      if (!electronApi?.local?.searchPhoto) {
+        setScanError('Search by image membutuhkan aplikasi desktop (local services).')
+        return
       }
+      const filePath = (searchFile as any).path
+      const data = await electronApi.local.searchPhoto(filePath)
+      setPhotos((data.hits || []).map((h: any) => ({
+        photo_id: h.photoId,
+        path: h.path,
+        thumb_path: h.thumbUrl,
+        similarity: h.similarity,
+        person_id: h.personId,
+        person_name: h.personName,
+        matched_persons: h.matchedPersons || [],
+      })))
+      setSearchFacesDetected(data.facesDetected ?? null)
+      setSearchMatchedPersons((data.hits || []).flatMap((h: any) => h.matchedPersons || []))
       setSelectedPerson(null)
       setSelectedDisk(null)
       setSelectedFolder(null)
       setSelectedView('')
     } catch (e) {
       console.error('Search failed', e)
+      setScanError('Search gagal — coba lagi.')
     } finally {
       setLoading(false)
     }
   }
 
-  // Add folder(s) — every picked folder is mapped to the container path and
-  // scanned in the background; live progress is polled from /scan/status/{id}.
+  // Add folder(s) — scan directly via local services (no backend); live progress
+  // is streamed via the 'local:scan-progress' IPC event.
   const scanFolder = async () => {
     try {
       const electronApi = (window as any).electron
-      if (!electronApi?.selectFolder) {
-        setScanError('Folder picker hanya tersedia di aplikasi desktop — jalankan via `npm run electron:dev`.')
+      if (!electronApi?.selectFolder || !electronApi?.local?.scanFolder) {
+        setScanError('Folder scan hanya tersedia di aplikasi desktop — jalankan via `npm run electron:dev`.')
         return
       }
       const paths = await electronApi.selectFolder()
       if (!paths || paths.length === 0) return
       setScanError(null)
       const started: ScanProgress[] = []
-      for (const folder of paths) {
-        if (folder.startsWith('MAPPING_ERROR:')) {
-          const rest = folder.slice('MAPPING_ERROR:'.length)
-          // Split on the LAST colon — host paths may themselves contain ':'
-          const sep = rest.lastIndexOf(':')
-          const hostPath = sep === -1 ? rest : rest.slice(0, sep)
-          const msg = sep === -1 ? 'unknown error' : rest.slice(sep + 1)
-          setScanError(`Could not add folder ${hostPath}: ${msg}`)
-          continue
+      for (const hostPath of paths) {
+        try {
+          const data = await electronApi.local.scanFolder(hostPath)
+          if (data?.scanId) {
+            started.push({ scan_id: data.scanId, folder: hostPath, status: 'queued', total: 0, processed: 0, scanned: 0, total_faces: 0, persons: 0, thumbs_generated: 0, errors: 0 })
+          }
+        } catch (e) {
+          console.error('Scan failed for', hostPath, e)
+          setScanError(`Scan gagal untuk ${hostPath}`)
         }
-        const form = new FormData()
-        form.append('folder', folder)
-        const res = await fetch(`${API_BASE}/scan`, { method: 'POST', headers: multipartHeaders(), body: form })
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}))
-          setScanError((err as any).detail || `Scan failed (HTTP ${res.status})`)
-          continue
-        }
-        const data = await res.json()
-        if (!data || !data.scan_id) {
-          setScanError('Backend masih versi lama — restart container API dulu (docker compose restart api) supaya scan progress aktif.')
-          continue
-        }
-        started.push(data)
       }
-      if (started.length > 0) {
-        setActiveScans((prev) => [...prev, ...started])
-      }
+      if (started.length > 0) setActiveScans((prev) => [...prev, ...started])
     } catch (e) {
-      setScanError('Could not reach API — is the backend running?')
+      console.error('Folder picker failed', e)
+      setScanError('Gagal membuka folder picker.')
     }
   }
 
-  // Stop a queued/running scan — backend checks the flag between photos
+  // Stop a queued/running scan — local services check the flag between photos
   const stopScan = async (scanId: string) => {
     try {
-      await fetch(`${API_BASE}/scan/${scanId}/cancel`, { method: 'POST', headers: jsonHeaders() })
+      const electronApi = (window as any).electron
+      await electronApi?.local?.cancelScan(scanId)
     } catch {
-      // backend unreachable — mark locally so the UI doesn't spin forever
+      // ignore — mark locally so the UI doesn't spin forever
     }
     const willAllBeTerminal = scansRef.current.every((s) =>
       s.scan_id === scanId || s.status === 'done' || s.status === 'error' || s.status === 'cancelled'
     )
     setActiveScans((prev) => prev.map((s) => (s.scan_id === scanId ? { ...s, status: 'cancelled' as const } : s)))
     if (willAllBeTerminal) {
-      // polling exits (scanning flips false) before it can fire the completion
-      // refresh — reload now so photos indexed so far show up
       loadPersons()
       loadFolders()
       setTimeout(() => loadPhotos(scopeRef.current.person, null, scopeRef.current.folder), 300)
     }
   }
 
-  // Remove an added folder and all photos indexed under it
+  // Remove an added folder and all photos indexed under it (local store)
   const removeFolder = async (folder: Folder) => {
     if (!confirm(`Remove "${folder.name}" and delete all ${folder.photo_count} indexed photos?`)) return
-    // Cancel any in-flight scan for this folder so it stops committing photos
     const matching = scansRef.current.filter((s) =>
       s.folder === folder.container_path && (s.status === 'queued' || s.status === 'running')
     )
     for (const s of matching) stopScan(s.scan_id)
     try {
-      const res = await fetch(`${API_BASE}/folder/${folder.folder_id}`, { method: 'DELETE', headers: jsonHeaders() })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        const detail = (err as any).detail || `HTTP ${res.status}`
-        setScanError(detail === 'Not Found'
-          ? 'Backend is outdated — rebuild the API container (docker compose up -d --build) so folder removal is available.'
-          : `Could not remove folder: ${detail}`)
-        return
-      }
+      const electronApi = (window as any).electron
+      await electronApi?.local?.deleteFolder(folder.host_path)
     } catch (e) {
       console.error('Failed to remove folder', e)
-      setScanError('Could not remove folder — API unreachable.')
+      setScanError('Gagal menghapus folder.')
       return
     }
     if (selectedFolder?.folder_id === folder.folder_id) {
@@ -260,37 +221,33 @@ export default function App() {
     loadPhotos(scopeRef.current.person, null, scopeRef.current.folder)
   }
 
-  // Rename person
+  // Rename person (local store)
   const renamePerson = async (personId: string, newName: string) => {
     try {
-      await fetch(`${API_BASE}/person/${personId}/rename`, {
-        method: 'PATCH',
-        headers: jsonHeaders(),
-        body: JSON.stringify({ name: newName }),
-      })
+      const electronApi = (window as any).electron
+      await electronApi?.local?.renamePerson(personId, newName)
       await loadPersons()
     } catch (e) {
       console.error('Rename failed', e)
     }
   }
 
-  // Check drive status
+  // Local services status — no backend health check needed (drive status shows
+  // whether the store is ready; local scan/search work offline by design).
   useEffect(() => {
-    const checkDrive = async () => {
+    const checkLocal = async () => {
       try {
-        const res = await fetch(`${API_BASE}/health`, { headers: jsonHeaders(), signal: AbortSignal.timeout(5000) })
-        const data = await res.json()
+        const electronApi = (window as any).electron
+        const stats = await electronApi?.local?.stats()
         driveFailures.current = 0
-        setDriveStatus(data.database === 'connected' ? 'API connected' : 'API disconnected')
+        setDriveStatus(stats ? 'Local ready' : 'Local unavailable')
       } catch {
-        // keep last good status on a single failure; only declare unreachable
-        // after two consecutive failures (covers the API's cold-start window)
         driveFailures.current += 1
-        if (driveFailures.current >= 2) setDriveStatus('API unreachable')
+        if (driveFailures.current >= 2) setDriveStatus('Local unavailable')
       }
     }
-    checkDrive()
-    const interval = setInterval(checkDrive, 10000)
+    checkLocal()
+    const interval = setInterval(checkLocal, 10000)
     return () => clearInterval(interval)
   }, [])
 
@@ -302,25 +259,10 @@ export default function App() {
     scopeRef.current = { person: selectedPerson, folder: selectedFolder?.container_path || null }
   }, [selectedPerson, selectedFolder])
 
-  // Re-attach to scans that were already running when the app (re)loaded
-  const recoverScans = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/scan/status`, { headers: jsonHeaders() })
-      if (!res.ok) return
-      const data = await res.json()
-      const active = (data.scans || []).filter((s: ScanProgress) => s.status === 'queued' || s.status === 'running')
-      if (active.length > 0) {
-        // Merge by scan_id (prefer the live status) so a scan is never duplicated
-        setActiveScans((prev) => {
-          const byId = new Map(prev.map((s) => [s.scan_id, s]))
-          for (const a of active) byId.set(a.scan_id, a)
-          return Array.from(byId.values())
-        })
-      }
-    } catch {
-      // backend not reachable — nothing to recover
-    }
-  }
+  // Re-attach to scans already running when the app (re)loaded — local scans are
+  // in-process (main.cjs), so nothing to recover; kept as a no-op seam for the
+  // future in-app update flow.
+  const recoverScans = async () => {}
 
   // Load persons on mount
   useEffect(() => {
@@ -337,83 +279,67 @@ export default function App() {
     return () => window.removeEventListener('focus', onFocus)
   }, [])
 
-  // Keep a ref of current scans so the polling interval never reads stale state
+  // Keep a ref of current scans so handlers never read stale state
   useEffect(() => {
     scansRef.current = activeScans
   }, [activeScans])
 
-  // Poll live scan progress (1s) while any scan is queued/running; when all are
-  // done, refresh persons/folders/photos so the UI reflects the new index.
+  // Live scan progress — streamed from main.cjs via IPC events (no polling).
+  // When all tracked scans reach a terminal state, refresh the UI.
   useEffect(() => {
-    if (!scanning) return
-    let cancelled = false
-    let failures = 0  // consecutive network failures while polling
-    const poll = async () => {
-      const running = scansRef.current.filter((s) => s.status === 'queued' || s.status === 'running')
-      if (running.length === 0) return
-      let hitNetworkError = false
-      const results = await Promise.all(running.map(async (s) => {
-        try {
-          const res = await fetch(`${API_BASE}/scan/status/${s.scan_id}`, { headers: jsonHeaders() })
-          if (res.status === 404) return { ...s, status: 'error' as const }  // backend restarted — scan lost
-          if (!res.ok) return s
-          return await res.json()
-        } catch {
-          hitNetworkError = true
-          return s
-        }
-      }))
-      if (cancelled) return
-      if (hitNetworkError) failures += 1
-      else failures = 0
-      // Give up after 3 consecutive failures so the UI never spins forever
-      let mergedResults = results
-      if (failures >= 3) {
-        mergedResults = results.map((r) =>
-          r.status === 'queued' || r.status === 'running' ? { ...r, status: 'error' as const } : r
-        )
+    const electronApi = (window as any).electron
+    if (!electronApi?.local?.onScanProgress) return
+    const unsubscribe = electronApi.local.onScanProgress((p: any) => {
+      const normalized = {
+        scan_id: p.scanId || p.scan_id,
+        folder: p.folder || '',
+        total: p.total ?? 0,
+        processed: p.processed ?? 0,
+        scanned: p.scanned ?? 0,
+        total_faces: p.totalFaces ?? p.total_faces ?? 0,
+        persons: p.persons ?? 0,
+        thumbs_generated: p.thumbsGenerated ?? p.thumbs_generated ?? 0,
+        errors: p.errors ?? 0,
+        status: p.status || 'running',
+        current_file: p.currentFile ?? p.current_file ?? null,
       }
-      const byId = new Map(mergedResults.map((r) => [r.scan_id, r]))
-      const merged = scansRef.current.map((s) => byId.get(s.scan_id) || s)
-      setActiveScans(merged)
-      if (merged.every((s) => s.status === 'done' || s.status === 'error' || s.status === 'cancelled')) {
+      setActiveScans((prev) => {
+        const byId = new Map(prev.map((s) => [s.scan_id, s]))
+        byId.set(normalized.scan_id, normalized)
+        return Array.from(byId.values())
+      })
+      // Terminal state -> refresh index so the UI reflects the new scan
+      if (p.status === 'done' || p.status === 'error' || p.status === 'cancelled') {
         loadPersons()
         loadFolders()
         setTimeout(() => {
           loadPhotos(scopeRef.current.person, null, scopeRef.current.folder)
         }, 300)
       }
-    }
-    poll()
-    const iv = setInterval(poll, 1000)
-    return () => {
-      cancelled = true
-      clearInterval(iv)
-    }
-  }, [scanning])
+    })
+    return unsubscribe
+  }, [])
 
-  // Load photos for selected person, folder, disk, or all
+  // Load photos for selected person, folder, disk, or all (local store)
   const loadPhotos = async (personId?: string | null, diskPath?: string | null, folderPath?: string | null) => {
     setLoading(true)
     try {
+      const electronApi = (window as any).electron
+      if (!electronApi?.local) return
       if (personId) {
-        const res = await fetch(`${API_BASE}/person/${personId}/photos`, { headers: jsonHeaders() })
-        const data = await res.json()
-        setPhotos(data.photos.map((p: any) => ({ ...p, person_id: personId })))
+        const rows = await electronApi.local.listPersonPhotos(personId)
+        setPhotos((rows || []).map((p: any) => ({ ...p, photo_id: p.photoId, thumb_path: p.thumbUrl ?? p.thumbPath, person_id: personId })))
       } else if (folderPath) {
-        const res = await fetch(`${API_BASE}/photos?limit=200&folder_path=${encodeURIComponent(folderPath)}`, { headers: jsonHeaders() })
-        const data = await res.json()
-        setPhotos(data.photos || [])
+        const rows = await electronApi.local.listPhotos(folderPath)
+        setPhotos((rows || []).map((p: any) => ({ ...p, photo_id: p.photoId, thumb_path: p.thumbUrl ?? p.thumbPath })))
       } else if (diskPath) {
-        const res = await fetch(`${API_BASE}/photos?limit=200`, { headers: jsonHeaders() })
-        const data = await res.json()
-        const all = data.photos || []
+        const rows = await electronApi.local.listPhotos()
+        const all = (rows || []).map((p: any) => ({ ...p, photo_id: p.photoId, thumb_path: p.thumbUrl ?? p.thumbPath }))
         const filtered = diskPath === '/' ? all : all.filter((p: any) => p.path?.startsWith(diskPath))
         setPhotos(filtered)
       } else {
-        const res = await fetch(`${API_BASE}/photos?limit=200`, { headers: jsonHeaders() })
-        const data = await res.json()
-        setPhotos(data.photos || [])
+        const rows = await electronApi.local.listPhotos()
+        setPhotos((rows || []).map((p: any) => ({ ...p, photo_id: p.photoId, thumb_path: p.thumbUrl ?? p.thumbPath })))
       }
     } catch (e) {
       console.error('Failed to load photos', e)
@@ -709,7 +635,7 @@ export default function App() {
                     style={{ width: size, height: size }}
                     src={
                       preview?.face_id
-                        ? `${API_BASE}/face/${preview.face_id}`
+                        ? `picly://thumb/${preview.face_id}.jpg`
                         : `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><rect width='100%25' height='100%25' fill='%23222'/><text x='50%25' y='54%25' font-size='18' fill='%233b82f6' text-anchor='middle' font-family='sans-serif'>${person.name.charAt(0).toUpperCase()}</text></svg>`
                     }
                     alt={person.name}
@@ -754,14 +680,14 @@ export default function App() {
                     onClick={() => setSelectedPhoto(photo)}
                   >
                     <img
-                      src={`${API_BASE}/thumb/${photo.photo_id}`}
+                      src={photo.thumb_path || `picly://thumb/${photo.photo_id}.jpg`}
                       alt=""
                       loading="lazy"
                     />
                     {photo.face_id && (
                       <img
                         className="face-overlay"
-                        src={`${API_BASE}/face/${photo.face_id}`}
+                        src={`picly://thumb/${photo.face_id}.jpg`}
                         alt=""
                         loading="lazy"
                       />
@@ -798,7 +724,7 @@ export default function App() {
             <div className="modal-body">
               <img
                 className="modal-image"
-                src={`${API_BASE}/thumb/${selectedPhoto.photo_id}`}
+                src={selectedPhoto.thumb_path || `picly://thumb/${selectedPhoto.photo_id}.jpg`}
                 alt=""
               />
               <div className="modal-meta">
@@ -827,7 +753,12 @@ export default function App() {
               <button
                 className="btn btn-danger"
                 onClick={async () => {
-                  await fetch(`${API_BASE}/photo/${selectedPhoto.photo_id}`, { method: 'DELETE', headers: jsonHeaders() })
+                  try {
+                    const electronApi = (window as any).electron
+                    await electronApi?.local?.deletePhoto(selectedPhoto.photo_id)
+                  } catch (e) {
+                    console.error('Delete photo failed', e)
+                  }
                   setSelectedPhoto(null)
                   loadPhotos(selectedPerson, null, selectedFolder?.container_path || null)
                   loadPersons()

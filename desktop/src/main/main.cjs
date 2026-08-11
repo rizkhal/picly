@@ -92,20 +92,14 @@ function listHostDisks() {
   }
 }
 
-// Dynamic scan: map the user's picked folder to the API container path via the
-// host mounts (compose mounts /Volumes + $HOME read-only under /host). No docker
-// cp / copying — the API scans the originals in place.
-async function getHostMount() {
-  try {
-    const res = await fetch(`${API_BASE}/config`, {
-      headers: { 'X-API-Key': process.env.PICLY_API_KEY || '' },
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
+// Folder picker — returns host paths directly (no backend mapping needed; the
+// local scanner reads the host filesystem in place).
+ipcMain.handle('select-folder', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'multiSelections']
+  });
+  return result.canceled || result.filePaths.length === 0 ? [] : result.filePaths;
+});
 
 // --------------------------------------------------------------------------
 // Local services (compiled from src/main/local.ts -> dist-main/local.js)
@@ -132,7 +126,16 @@ function registerLocalIpc() {
   ipcMain.handle('local:list-persons', () => getLocalServices().store.listPersons());
   ipcMain.handle('local:list-photos', (_e, folderPath) => {
     const local = getLocalServices();
-    return require('../dist-main/local.js').listPhotos(local, folderPath || undefined);
+    const rows = require('../dist-main/local.js').listPhotos(local, folderPath || undefined);
+    return rows.map((p) => ({ ...p, thumbUrl: p.thumbPath ? `picly://thumb/${path.basename(p.thumbPath)}` : null }));
+  });
+  ipcMain.handle('local:list-person-photos', (_e, personId) => {
+    const local = getLocalServices();
+    return require('../dist-main/local.js').listPersonPhotos(local, personId);
+  });
+  ipcMain.handle('local:delete-photo', (_e, photoId) => {
+    getLocalServices().store.deletePhoto(photoId);
+    return true;
   });
   ipcMain.handle('local:rename-person', (_e, personId, name) => {
     getLocalServices().store.renamePerson(personId, name);
@@ -178,51 +181,28 @@ function registerLocalIpc() {
 }
 
 // API-based IPC (legacy — the renderer still talks to the Python backend)
-ipcMain.handle('select-folder', async () => {
-  const result = await dialog.showOpenDialog({
-    properties: ['openDirectory', 'multiSelections']
-  });
-  if (result.canceled || result.filePaths.length === 0) return [];
-
-  const config = await getHostMount();
-  if (!config) {
-    return result.filePaths.map((p) =>
-      `MAPPING_ERROR:${p}:API /config unreachable — is the backend running?`
-    );
-  }
-
-  // Multi-root: [{source, target}, ...]; fall back to legacy single keys
-  const mounts = (config.mounts && config.mounts.length)
-    ? config.mounts
-    : [{ source: config.host_mount_source, target: config.host_mount_target }];
-  const normalized = mounts
-    .filter((m) => m && m.source)
-    .map((m) => ({
-      source: (m.source || '/').replace(/\/+$/, '') || '/',
-      target: (m.target || '/host').replace(/\/+$/, '') || '/host',
-    }))
-    .sort((a, b) => b.source.length - a.source.length); // longest prefix first
-
-  const containerPaths = [];
-  for (const hostPath of result.filePaths) {
-    const match = normalized.find(
-      (m) => hostPath === m.source || hostPath.startsWith(m.source + '/')
-    );
-    if (match) {
-      const rest = hostPath.slice(match.source.length).replace(/^\/+/, '');
-      containerPaths.push(`${match.target}/${rest}`.replace(/\/{2,}/g, '/'));
-    } else {
-      const roots = normalized.map((m) => m.source).join(', ');
-      containerPaths.push(
-        `MAPPING_ERROR:${hostPath}:Folder is outside any mounted root (${roots})`
-      );
-    }
-  }
-  return containerPaths;
-});
-
+// API-based IPC (legacy — kept for in-app update checks later)
 ipcMain.handle('get-api-base', () => API_BASE);
 ipcMain.handle('get-api-key', () => process.env.PICLY_API_KEY || '');
 ipcMain.handle('list-disks', () => listHostDisks());
+
+// In-app update seam: the backend serves release manifests for the desktop app.
+// Renderer calls this to check for a new version; main is the only place that
+// knows the packaged app version (process.env.npm_package_version / app.getVersion).
+ipcMain.handle('app:check-update', async () => {
+  try {
+    const res = await fetch(`${API_BASE}/app/update`, {
+      headers: { 'X-API-Key': process.env.PICLY_API_KEY || '' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return { available: false, error: `HTTP ${res.status}` };
+    const manifest = await res.json();
+    const current = app.getVersion();
+    const available = !!(manifest && manifest.version && manifest.version !== current);
+    return { available, current, latest: manifest.version || null, url: manifest.url || null, notes: manifest.notes || null };
+  } catch (e) {
+    return { available: false, error: String(e && e.message ? e.message : e) };
+  }
+});
 
 registerLocalIpc();

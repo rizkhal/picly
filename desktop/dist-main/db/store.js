@@ -103,6 +103,16 @@ class PhotoStore {
          GROUP BY p.id ORDER BY p.created_at DESC LIMIT ? OFFSET ?`)
             .all(...params);
     }
+    /** Photos belonging to one person (via its faces), newest first. */
+    listPhotosForPerson(personId, limit = 500) {
+        return this.db
+            .prepare(`SELECT DISTINCT p.id AS photoId, p.path, p.thumb_path AS thumbPath, p.width, p.height
+         FROM faces f
+         JOIN photos p ON p.id = f.photo_id
+         WHERE f.person_id = ?
+         ORDER BY p.created_at DESC LIMIT ?`)
+            .all(personId, limit);
+    }
     // ------------------------------------------- faces + clustering (mirror backend)
     /**
      * Insert a face, matching/creating its person cluster (centroid cosine

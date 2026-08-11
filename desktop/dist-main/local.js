@@ -8,6 +8,7 @@ exports.startScan = startScan;
 exports.searchPhoto = searchPhoto;
 exports.searchStoredPhoto = searchStoredPhoto;
 exports.listPhotos = listPhotos;
+exports.listPersonPhotos = listPersonPhotos;
 /**
  * Local services entry point for the Electron main process.
  *
@@ -77,4 +78,11 @@ function searchStoredPhoto(services, photoId, limit = 10) {
 }
 function listPhotos(services, folderPath, limit = 500, offset = 0) {
     return services.store.listPhotos(folderPath, limit, offset);
+}
+/** Photos scoped to a person (via faces), thumbnails mapped to picly:// URLs. */
+function listPersonPhotos(services, personId, limit = 500) {
+    return services.store.listPhotosForPerson(personId, limit).map((p) => ({
+        ...p,
+        thumbUrl: p.thumbPath ? `picly://thumb/${node_path_1.default.basename(p.thumbPath)}` : null,
+    }));
 }
