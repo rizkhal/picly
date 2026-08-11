@@ -158,6 +158,11 @@ function registerLocalIpc() {
     const local = getLocalServices();
     return require('../../dist-main/local.js').photoFaces(local, photoId);
   });
+
+  ipcMain.handle('local:face-box-for-photo', (_e, personId, photoId) => {
+    const local = getLocalServices();
+    return require('../../dist-main/local.js').faceBoxForPhoto(local, personId, photoId);
+  });
   ipcMain.handle('local:delete-photo', (_e, photoId) => {
     getLocalServices().store.deletePhoto(photoId);
     return true;

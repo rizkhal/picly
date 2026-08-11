@@ -134,3 +134,8 @@ export function listPersonPreviews(services: LocalServices, ids: string[]): unkn
 export function photoFaces(services: LocalServices, photoId: string): unknown[] {
   return services.store.facesForPhotoView(photoId)
 }
+
+/** Face box for a single photo scoped to a person filter (grid highlight). */
+export function faceBoxForPhoto(services: LocalServices, personId: string, photoId: string): unknown {
+  return services.store.faceBoxForPhoto(personId, photoId)
+}

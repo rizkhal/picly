@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('electron', {
     listPersonPhotos: (personId) => ipcRenderer.invoke('local:list-person-photos', personId),
     listPersonPreviews: (ids) => ipcRenderer.invoke('local:list-person-previews', ids),
     photoFaces: (photoId) => ipcRenderer.invoke('local:photo-faces', photoId),
+    faceBoxForPhoto: (personId, photoId) => ipcRenderer.invoke('local:face-box-for-photo', personId, photoId),
     renamePerson: (personId, name) => ipcRenderer.invoke('local:rename-person', personId, name),
     deleteFolder: (hostPath) => ipcRenderer.invoke('local:delete-folder', hostPath),
     deletePhoto: (photoId) => ipcRenderer.invoke('local:delete-photo', photoId),

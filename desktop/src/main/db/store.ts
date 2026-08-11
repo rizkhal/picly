@@ -398,6 +398,25 @@ export class PhotoStore {
     return rows.map((r) => blobToEmbedding(r.embedding))
   }
 
+  /** Single face box (first matching) for a photo, scoped to a person filter. */
+  faceBoxForPhoto(personId: string, photoId: string): { faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null; width: number | null; height: number | null } | null {
+    const row = this.db
+      .prepare(
+        `SELECT f.id AS faceId, f.x1, f.y1, f.x2, f.y2, f.person_id AS personId, per.name AS personName,
+                p.width AS width, p.height AS height
+         FROM faces f
+         LEFT JOIN persons per ON per.id = f.person_id
+         JOIN photos p ON p.id = f.photo_id
+         WHERE f.person_id = ? AND f.photo_id = ?
+         ORDER BY f.created_at
+         LIMIT 1`,
+      )
+      .get(personId, photoId) as
+      | { faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null; width: number | null; height: number | null }
+      | undefined
+    return row ?? null
+  }
+
   /** Face boxes + person labels for a photo, for the detail-view overlay. */
   facesForPhotoView(photoId: string): Array<{ faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null }> {
     return this.db
