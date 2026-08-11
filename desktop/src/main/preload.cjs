@@ -4,7 +4,6 @@ contextBridge.exposeInMainWorld('electron', {
   // Legacy API-based IPC (Python backend)
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   getApiBase: () => ipcRenderer.invoke('get-api-base'),
-  getApiKey: () => ipcRenderer.invoke('get-api-key'),
   listDisks: () => ipcRenderer.invoke('list-disks'),
 
   // In-app update check (backend serves the release manifest)

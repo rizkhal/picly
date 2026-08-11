@@ -1,5 +1,5 @@
 {
- "generated_by": "docs/ml-parity/gen_fixtures.py (was services/face-search/scripts/gen_fixtures.py)",
+ "generated_by": "services/face-search/scripts/gen_fixtures.py",
  "reference": "insightface 0.7.3 buffalo_l det_size=(640,640)",
  "photos": [
   {

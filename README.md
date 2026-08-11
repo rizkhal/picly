@@ -26,22 +26,37 @@ npm run electron:dev # compile local services + run the app (needs a GUI session
 
 The desktop checks for a newer release against the Hono service:
 
+The backend serves **auth** (register/login) and the **in-app update manifest**:
+
 ```bash
 cd backend
 bun install
-bun run src/index.ts   # serves GET /app/update, /app/update/check, /health
+bun run src/index.ts   # serves /auth/*, /app/update, /health
 ```
 
 Or via Docker: `docker compose up -d --build` (binds `127.0.0.1:8000`).
 
-The manifest (version/url/notes) lives in `backend/src/update.ts` — bump it when releasing.
+| Endpoint | Auth | Description |
+|---|---|---|
+| `POST /auth/register` | public | Create account (email + password ≥ 8 chars), rate-limited 5/15min/IP |
+| `POST /auth/login` | public | Login → JWT access + refresh token pair, rate-limited 5/15min/IP |
+| `POST /auth/refresh` | public | Rotate refresh token → new token pair (old one revoked) |
+| `POST /auth/logout` | public | Revoke refresh token |
+| `GET /app/update` | public | Update manifest `{ version, url, notes }` |
+| `GET /app/update/check?current=` | public | Convenience: is there a newer version? |
+| `GET /health`, `/ready` | public | Health / readiness |
+
+- Passwords hashed with argon2id (`Bun.password`), refresh tokens stored hashed + revocable
+- The update manifest is **public** — it only carries a version + GitHub release URL, and staying available matters more than being gated
+- The manifest (version/url/notes) lives in `backend/src/update.ts` — bump it when releasing
 
 ## Env vars
 
 | Var | Default | Description |
 |---|---|---|
 | `PICLY_MODELS_DIR` | `~/.insightface/models` | ONNX model dir (`buffalo_l`) |
-| `PICLY_API_KEY` | empty | Optional API key auth for the update backend |
+| `JWT_SECRET` | (ephemeral) | JWT signing secret — **required in production** (`openssl rand -base64 32`) |
+| `DB_PATH` | `/data/picly.db` | Backend SQLite DB path |
 | `PORT` (backend) | `8000` | Backend listen port |
 
 ## Desktop ML pipeline (Node / ONNX Runtime)

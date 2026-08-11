@@ -180,10 +180,8 @@ function registerLocalIpc() {
   });
 }
 
-// API-based IPC (legacy — the renderer still talks to the Python backend)
 // API-based IPC (legacy — kept for in-app update checks later)
 ipcMain.handle('get-api-base', () => API_BASE);
-ipcMain.handle('get-api-key', () => process.env.PICLY_API_KEY || '');
 ipcMain.handle('list-disks', () => listHostDisks());
 
 // In-app update seam: the backend serves release manifests for the desktop app.
@@ -192,7 +190,7 @@ ipcMain.handle('list-disks', () => listHostDisks());
 ipcMain.handle('app:check-update', async () => {
   try {
     const res = await fetch(`${API_BASE}/app/update`, {
-      headers: { 'X-API-Key': process.env.PICLY_API_KEY || '' },
+      // Endpoint is public — manifest is not sensitive (see backend/src/update.ts)
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return { available: false, error: `HTTP ${res.status}` };

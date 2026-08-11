@@ -15,5 +15,9 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/src ./src
 
+# Auth DB (users + refresh tokens) — persisted via Docker volume
+RUN mkdir -p /data
+ENV DB_PATH=/data/picly.db
+
 EXPOSE 8000
 CMD ["bun", "run", "src/index.ts"]

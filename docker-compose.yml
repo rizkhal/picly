@@ -13,11 +13,19 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       NODE_ENV: production
+      # JWT signing secret — REQUIRED in production. Generate with:
+      #   openssl rand -base64 32
+      JWT_SECRET: ${JWT_SECRET:-}
       # Manifest is compiled-in; override here when releasing new versions
       # PICLY_LATEST_VERSION: "1.1.0"
       # PICLY_UPDATE_URL: "https://github.com/rizkhal/picly/releases/latest"
+    volumes:
+      - picly-backend-data:/data
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://localhost:8000/health').then(r => { if (!r.ok) process.exit(1) })"]
       interval: 30s
       timeout: 5s
       retries: 3
+
+volumes:
+  picly-backend-data:
