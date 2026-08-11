@@ -1,498 +1,86 @@
-import { useState, useEffect, useRef } from 'react'
-import { ClockCounterClockwise, Video, MapPin, Trash, Folder, MagnifyingGlass, Camera, X, CaretRight } from '@phosphor-icons/react'
-
-type Person = { person_id: string; name: string; photo_count: number }
-type Photo = { photo_id: string; path: string; thumb_path?: string; similarity?: number; person_id?: string; person_name?: string; face_id?: string; matched_persons?: string[]; width?: number | null; height?: number | null }
-type Disk = { name: string; path: string; free_gb?: number; total_gb?: number }
-type Folder = { folder_id: string; host_path: string; container_path: string; name: string; photo_count: number; available: boolean }
-type ScanProgress = {
-  scan_id: string
-  folder: string
-  total: number
-  processed: number
-  scanned: number
-  total_faces: number
-  persons: number
-  thumbs_generated: number
-  errors: number
-  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
-  current_file?: string | null
-  started_at?: number
-  finished_at?: number | null
-}
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { MagnifyingGlass, Camera } from '@phosphor-icons/react'
+import type { Folder, Photo } from './types'
+import { useLibrary } from './hooks/useLibrary'
+import { useScans } from './hooks/useScans'
+import { useAuth } from './hooks/useAuth'
+import * as ipc from './lib/electron'
+import { Sidebar, FacesBar } from './components/Sidebar'
+import { PhotoGrid, PhotoModal } from './components/PhotoGrid'
+import { AuthModal } from './components/AuthModal'
+import { UpdateBanner } from './components/UpdateBanner'
 
 export default function App() {
-  const [persons, setPersons] = useState<Person[]>([])
-  const [photos, setPhotos] = useState<Photo[]>([])
+  // Library: disks / folders / persons / photos / faceboxes
+  const library = useLibrary()
+  const {
+    persons, personPreviews, folders, disks, photos, setPhotos, gridFaceBoxes, setGridFaceBoxes,
+    loading, setLoading, driveStatus, scopeRef,
+    loadDisks, loadFolders, loadPersons, loadPhotos, searchFace,
+  } = library
+
+  // Scan engine: 3-state (pause/resume/hapus) + progress subscription
+  const refreshAfterScan = useCallback(() => {
+    loadPersons()
+    loadFolders()
+    setTimeout(() => {
+      loadPhotos(scopeRef.current.person, null, scopeRef.current.folder)
+    }, 300)
+  }, [loadPersons, loadFolders, loadPhotos, scopeRef])
+  const scans = useScans(refreshAfterScan)
+  const {
+    activeScans, dismissedScans, scanning, scanFolder,
+    pauseScan, resumeScan, removeScan, dismissScan, recoverScans,
+  } = scans
+
+  // Auth + update banner
+  const auth = useAuth()
+  const {
+    authStatus, authModal, setAuthModal, authEmail, setAuthEmail, authPassword, setAuthPassword,
+    authBusy, authError, setAuthError, updateInfo, updateDismissed, setUpdateDismissed,
+    submitAuth, handleLogout, checkForUpdate, openUpdatePage,
+  } = auth
+
+  // Selection state
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null)
   const [selectedDisk, setSelectedDisk] = useState<string | null>(null)
+  const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null)
+  const [selectedView, setSelectedView] = useState<string>('recents')
   const [searchQuery, setSearchQuery] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [searchFacesDetected, setSearchFacesDetected] = useState<number | null>(null)
+  const [searchMatchedPersons, setSearchMatchedPersons] = useState<string[]>([])
   const [scanError, setScanError] = useState<string | null>(null)
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
-  const [gridFaceBoxes, setGridFaceBoxes] = useState<Record<string, { x1: number; y1: number; x2: number; y2: number } | null>>({})
   const [photoZoom, setPhotoZoom] = useState(1)
-  const [driveStatus, setDriveStatus] = useState('Checking...')
+
   // Disk section collapse — persisted so the choice survives restarts
   const [diskCollapsed, setDiskCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem('picly:disk-collapsed') === '1' } catch { return false }
   })
-  const [searchFile, setSearchFile] = useState<File | null>(null)
-  const [searchFacesDetected, setSearchFacesDetected] = useState<number | null>(null)
-  const [searchMatchedPersons, setSearchMatchedPersons] = useState<string[]>([])
-  const [selectedView, setSelectedView] = useState<string>('recents')
-  const [disks, setDisks] = useState<Disk[]>([])
-  const [folders, setFolders] = useState<Folder[]>([])
-  const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null)
-  const [personPreviews, setPersonPreviews] = useState<Array<{ person_id: string; name: string; photo_count: number; face_id?: string }>>([])
-  const [activeScans, setActiveScans] = useState<ScanProgress[]>([])
-  // Scan results the user dismissed (ringkasan selesai) — persisted per session
-  const [dismissedScans, setDismissedScans] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem('picly:dismissed-scans')
-      return raw ? new Set(JSON.parse(raw)) : new Set()
-    } catch {
-      return new Set()
-    }
-  })
-
-  // Auth state (Fase 2: account/entitlement — local features don't require it)
-  const [authStatus, setAuthStatus] = useState<{ loggedIn: boolean; email: string | null }>({ loggedIn: false, email: null })
-  const [authModal, setAuthModal] = useState<'login' | 'register' | null>(null)
-  const [authEmail, setAuthEmail] = useState('')
-  const [authPassword, setAuthPassword] = useState('')
-  const [authBusy, setAuthBusy] = useState(false)
-  const [authError, setAuthError] = useState<string | null>(null)
-
-  // Update state (Fase 3: in-app update banner)
-  const [updateInfo, setUpdateInfo] = useState<{ available: boolean; current?: string | null; latest?: string | null; url?: string | null; notes?: string[] | null; error?: string } | null>(null)
-  const [updateDismissed, setUpdateDismissed] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const driveFailures = useRef(0)
-  const scansRef = useRef<ScanProgress[]>([])
 
-  // A scan is in flight until every tracked scan has finished
-  const scanning = activeScans.some((s) => s.status === 'queued' || s.status === 'running')
-
-  // Load disks — real host mounts via Electron (no backend)
-  const loadDisks = async () => {
-    try {
-      const electronApi = (window as any).electron
-      if (electronApi?.listDisks) {
-        const disks = await electronApi.listDisks()
-        if (disks && disks.length > 0) setDisks(disks)
-      }
-    } catch (e) {
-      console.error('Failed to load disks', e)
-    }
-  }
-
-  // Auth — load persisted status on mount
-  const loadAuthStatus = async () => {
-    try {
-      const electronApi = (window as any).electron
-      const s = await electronApi?.auth?.status()
-      if (s) setAuthStatus({ loggedIn: !!s.loggedIn, email: s.email || null })
-    } catch (e) {
-      console.error('Failed to load auth status', e)
-    }
-  }
-
-  const submitAuth = async (mode: 'login' | 'register') => {
-    if (!authEmail || !authPassword) {
-      setAuthError('Email dan password wajib diisi.')
-      return
-    }
-    setAuthBusy(true)
-    setAuthError(null)
-    try {
-      const electronApi = (window as any).electron
-      const res = mode === 'login'
-        ? await electronApi.auth.login(authEmail, authPassword)
-        : await electronApi.auth.register(authEmail, authPassword)
-      if (res?.ok) {
-        setAuthStatus({ loggedIn: true, email: res.email || authEmail })
-        setAuthModal(null)
-        setAuthEmail('')
-        setAuthPassword('')
-      } else {
-        setAuthError(res?.error || 'Gagal. Coba lagi.')
-      }
-    } catch (e: any) {
-      setAuthError(e?.message || String(e))
-    } finally {
-      setAuthBusy(false)
-    }
-  }
-
-  const handleLogout = async () => {
-    try {
-      const electronApi = (window as any).electron
-      await electronApi?.auth?.logout()
-      setAuthStatus({ loggedIn: false, email: null })
-    } catch (e) {
-      console.error('Logout failed', e)
-    }
-  }
-
-  // Fase 3: check for an update on startup (backend serves the manifest)
-  const checkForUpdate = async (silent = false) => {
-    try {
-      const electronApi = (window as any).electron
-      if (!electronApi?.checkUpdate) return
-      const res = await electronApi.checkUpdate()
-      setUpdateInfo(res || { available: false })
-      setUpdateDismissed(false)
-      if (!silent && res?.error) console.warn('Update check failed:', res.error)
-    } catch (e) {
-      if (!silent) console.warn('Update check failed', e)
-    }
-  }
-
-  const openUpdatePage = async () => {
-    if (!updateInfo?.url) return
-    try {
-      const electronApi = (window as any).electron
-      await electronApi?.openUpdate?.(updateInfo.url)
-    } catch (e) {
-      console.error('Failed to open update page', e)
-    }
-  }
-
-  // Load folders added via '+ Add folder' (local store)
-  const loadFolders = async () => {
-    try {
-      const electronApi = (window as any).electron
-      if (!electronApi?.local?.listFolders) return
-      const rows = await electronApi.local.listFolders()
-      // Normalize snake_case (legacy) -> camelCase used by the UI
-      setFolders((rows || []).map((f: any) => ({
-        folder_id: f.folderId || f.folder_id,
-        host_path: f.hostPath || f.host_path,
-        name: f.name,
-        photo_count: f.photoCount ?? f.photo_count ?? 0,
-        container_path: f.hostPath || f.host_path,
-        available: true,
-      })))
-    } catch (e) {
-      console.error('Failed to load folders', e)
-    }
-  }
-
-  // Load persons (local store) + face crop previews (one representative face each)
-  const loadPersons = async () => {
-    try {
-      const electronApi = (window as any).electron
-      if (!electronApi?.local?.listPersons) return
-      const rows = await electronApi.local.listPersons()
-      const livePersons = (rows || [])
-        .filter((p: any) => (p.photoCount ?? p.photo_count ?? 0) > 0)
-        .map((p: any) => ({ person_id: p.personId || p.person_id, name: p.name, photo_count: p.photoCount ?? p.photo_count ?? 0 }))
-      setPersons(livePersons)
-      // Face crop previews: one request for every person's representative face
-      const previews: Array<{ person_id: string; name: string; photo_count: number; face_id?: string }> = []
-      const ids = livePersons.map((p: any) => p.person_id)
-      if (ids.length > 0 && electronApi.local.listPersonPreviews) {
-        const faceRows = await electronApi.local.listPersonPreviews(ids)
-        const byId = new Map<string, any>((faceRows || []).map((f: any) => [f.personId || f.person_id, f]))
-        for (const p of livePersons) {
-          const face = byId.get(p.person_id)
-          previews.push({ ...p, face_id: face?.faceId || face?.face_id || undefined })
-        }
-      } else {
-        previews.push(...livePersons)
-      }
-      setPersonPreviews(previews)
-    } catch (e) {
-      console.error('Failed to load persons', e)
-    }
-  }
-
-  // Search face — full local: detect ALL faces in the query photo, dedup per photo
-  const searchFace = async () => {
-    if (!searchFile) return
-    setLoading(true)
-    try {
-      const electronApi = (window as any).electron
-      if (!electronApi?.local?.searchPhoto) {
-        setScanError('Search by image membutuhkan aplikasi desktop (local services).')
-        return
-      }
-      const filePath = (searchFile as any).path
-      const data = await electronApi.local.searchPhoto(filePath)
-      setPhotos((data.hits || []).map((h: any) => ({
-        photo_id: h.photoId,
-        path: h.path,
-        thumb_path: h.thumbUrl,
-        similarity: h.similarity,
-        person_id: h.personId,
-        person_name: h.personName,
-        matched_persons: h.matchedPersons || [],
-      })))
-      setSearchFacesDetected(data.facesDetected ?? null)
-      setSearchMatchedPersons((data.hits || []).flatMap((h: any) => h.matchedPersons || []))
-      setSelectedPerson(null)
-      setSelectedDisk(null)
-      setSelectedFolder(null)
-      setSelectedView('')
-    } catch (e) {
-      console.error('Search failed', e)
-      setScanError('Search gagal — coba lagi.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Add folder(s) — scan directly via local services (no backend); live progress
-  // is streamed via the 'local:scan-progress' IPC event.
-  const scanFolder = async () => {
-    try {
-      const electronApi = (window as any).electron
-      if (!electronApi?.selectFolder || !electronApi?.local?.scanFolder) {
-        setScanError('Folder scan hanya tersedia di aplikasi desktop — jalankan via `npm run electron:dev`.')
-        return
-      }
-      const paths = await electronApi.selectFolder()
-      if (!paths || paths.length === 0) return
-      setScanError(null)
-      const started: ScanProgress[] = []
-      for (const hostPath of paths) {
-        try {
-          const data = await electronApi.local.scanFolder(hostPath)
-          if (data?.scanId) {
-            started.push({ scan_id: data.scanId, folder: hostPath, status: 'queued', total: 0, processed: 0, scanned: 0, total_faces: 0, persons: 0, thumbs_generated: 0, errors: 0 })
-          }
-        } catch (e) {
-          console.error('Scan failed for', hostPath, e)
-          setScanError(`Scan gagal untuk ${hostPath}`)
-        }
-      }
-      if (started.length > 0) setActiveScans((prev) => [...prev, ...started])
-    } catch (e) {
-      console.error('Folder picker failed', e)
-      setScanError('Gagal membuka folder picker.')
-    }
-  }
-
-  // Stop a queued/running scan — local services check the flag between photos
-  const stopScan = async (scanId: string) => {
-    try {
-      const electronApi = (window as any).electron
-      await electronApi?.local?.cancelScan(scanId)
-    } catch {
-      // ignore — mark locally so the UI doesn't spin forever
-    }
-    const willAllBeTerminal = scansRef.current.every((s) =>
-      s.scan_id === scanId || s.status === 'done' || s.status === 'error' || s.status === 'cancelled'
-    )
-    setActiveScans((prev) => prev.map((s) => (s.scan_id === scanId ? { ...s, status: 'cancelled' as const } : s)))
-    if (willAllBeTerminal) {
-      loadPersons()
-      loadFolders()
-      setTimeout(() => loadPhotos(scopeRef.current.person, null, scopeRef.current.folder), 300)
-    }
-  }
-
-  // Remove a finished scan from the sidebar (ringkasan yang sudah selesai)
-  const dismissScan = (scanId: string) => {
-    setDismissedScans((prev) => {
-      const next = new Set(prev)
-      next.add(scanId)
-      try { localStorage.setItem('picly:dismissed-scans', JSON.stringify([...next])) } catch {}
-      return next
-    })
-  }
-
-  // Remove an added folder and all photos indexed under it (local store)
-  const removeFolder = async (folder: Folder) => {
-    if (!confirm(`Remove "${folder.name}" and delete all ${folder.photo_count} indexed photos?`)) return
-    const matching = scansRef.current.filter((s) =>
-      s.folder === folder.container_path && (s.status === 'queued' || s.status === 'running')
-    )
-    for (const s of matching) stopScan(s.scan_id)
-    try {
-      const electronApi = (window as any).electron
-      await electronApi?.local?.deleteFolder(folder.host_path)
-    } catch (e) {
-      console.error('Failed to remove folder', e)
-      setScanError('Gagal menghapus folder.')
-      return
-    }
-    if (selectedFolder?.folder_id === folder.folder_id) {
-      setSelectedFolder(null)
-      setPhotos([])
-    }
-    await loadFolders()
-    await loadPersons()
-    loadPhotos(scopeRef.current.person, null, scopeRef.current.folder)
-  }
-
-  // Rename person (local store)
-  const renamePerson = async (personId: string, newName: string) => {
-    try {
-      const electronApi = (window as any).electron
-      await electronApi?.local?.renamePerson(personId, newName)
-      await loadPersons()
-    } catch (e) {
-      console.error('Rename failed', e)
-    }
-  }
-
-  // Open a photo in the detail modal — full-res source + zoom + reveal in Finder
-  const openPhoto = async (photo: Photo) => {
-    setSelectedPhoto(photo)
-    setPhotoZoom(1)
-  }
-
-  // Reveal the original file in Finder/Explorer
-  const openLocation = async (filePath: string) => {
-    try {
-      const electronApi = (window as any).electron
-      await electronApi?.showItem?.(filePath)
-    } catch (e) {
-      console.error('Failed to open location', e)
-    }
-  }
-  // Local services status — no backend health check needed (drive status shows
-  // whether the store is ready; local scan/search work offline by design).
-  useEffect(() => {
-    const checkLocal = async () => {
-      try {
-        const electronApi = (window as any).electron
-        const stats = await electronApi?.local?.stats()
-        driveFailures.current = 0
-        setDriveStatus(stats ? 'Local ready' : 'Local unavailable')
-      } catch {
-        driveFailures.current += 1
-        if (driveFailures.current >= 2) setDriveStatus('Local unavailable')
-      }
-    }
-    checkLocal()
-    const interval = setInterval(checkLocal, 10000)
-    return () => clearInterval(interval)
-  }, [])
-
-  // Track the current person/folder scope in a ref so the scan-completion
-  // refresh always reloads what the user is actually looking at, not what was
-  // selected when the scan started.
-  const scopeRef = useRef<{ person: string | null; folder: string | null }>({ person: null, folder: null })
+  // Track the current person/folder scope for scan-completion refresh
   useEffect(() => {
     scopeRef.current = { person: selectedPerson, folder: selectedFolder?.container_path || null }
-  }, [selectedPerson, selectedFolder])
+  }, [selectedPerson, selectedFolder, scopeRef])
 
-  // Re-attach to scans already running when the app (re)loaded — local scans are
-  // in-process (main.cjs), so nothing to recover; kept as a no-op seam for the
-  // future in-app update flow.
-  const recoverScans = async () => {}
-
-  // Load persons on mount
+  // Load everything on mount
   useEffect(() => {
     loadDisks()
     loadPersons()
     loadFolders()
-    loadAuthStatus()
     checkForUpdate(true)
     recoverScans()
-  }, [])
+  }, [loadDisks, loadPersons, loadFolders, checkForUpdate, recoverScans])
 
   // Re-scan mounts when the window regains focus (drives can be plugged/unplugged)
   useEffect(() => {
     const onFocus = () => { loadDisks(); loadFolders(); recoverScans() }
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
-  }, [])
+  }, [loadDisks, loadFolders, recoverScans])
 
-  // Keep a ref of current scans so handlers never read stale state
-  useEffect(() => {
-    scansRef.current = activeScans
-  }, [activeScans])
-
-  // Live scan progress — streamed from main.cjs via IPC events (no polling).
-  // When all tracked scans reach a terminal state, refresh the UI.
-  useEffect(() => {
-    const electronApi = (window as any).electron
-    if (!electronApi?.local?.onScanProgress) return
-    const unsubscribe = electronApi.local.onScanProgress((p: any) => {
-      const normalized = {
-        scan_id: p.scanId || p.scan_id,
-        folder: p.folder || '',
-        total: p.total ?? 0,
-        processed: p.processed ?? 0,
-        scanned: p.scanned ?? 0,
-        total_faces: p.totalFaces ?? p.total_faces ?? 0,
-        persons: p.persons ?? 0,
-        thumbs_generated: p.thumbsGenerated ?? p.thumbs_generated ?? 0,
-        errors: p.errors ?? 0,
-        status: p.status || 'running',
-        current_file: p.currentFile ?? p.current_file ?? null,
-      }
-      setActiveScans((prev) => {
-        const byId = new Map(prev.map((s) => [s.scan_id, s]))
-        byId.set(normalized.scan_id, normalized)
-        return Array.from(byId.values())
-      })
-      // Terminal state -> refresh index so the UI reflects the new scan
-      if (p.status === 'done' || p.status === 'error' || p.status === 'cancelled') {
-        loadPersons()
-        loadFolders()
-        setTimeout(() => {
-          loadPhotos(scopeRef.current.person, null, scopeRef.current.folder)
-        }, 300)
-      }
-    })
-    return unsubscribe
-  }, [])
-
-  // Load photos for selected person, folder, disk, or all (local store)
-  const loadPhotos = async (personId?: string | null, diskPath?: string | null, folderPath?: string | null) => {
-    setLoading(true)
-    try {
-      const electronApi = (window as any).electron
-      if (!electronApi?.local) return
-      if (personId) {
-        const rows = await electronApi.local.listPersonPhotos(personId)
-        const mapped = (rows || []).map((p: any) => ({ ...p, photo_id: p.photoId, thumb_path: p.thumbUrl ?? p.thumbPath, person_id: personId }))
-        setPhotos(mapped)
-        loadGridFaceBoxes(personId, mapped)
-      } else if (folderPath) {
-        const rows = await electronApi.local.listPhotos(folderPath)
-        setPhotos((rows || []).map((p: any) => ({ ...p, photo_id: p.photoId, thumb_path: p.thumbUrl ?? p.thumbPath })))
-      } else if (diskPath) {
-        const rows = await electronApi.local.listPhotos()
-        const all = (rows || []).map((p: any) => ({ ...p, photo_id: p.photoId, thumb_path: p.thumbUrl ?? p.thumbPath }))
-        const filtered = diskPath === '/' ? all : all.filter((p: any) => p.path?.startsWith(diskPath))
-        setPhotos(filtered)
-      } else {
-        const rows = await electronApi.local.listPhotos()
-        setPhotos((rows || []).map((p: any) => ({ ...p, photo_id: p.photoId, thumb_path: p.thumbUrl ?? p.thumbPath })))
-      }
-    } catch (e) {
-      console.error('Failed to load photos', e)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Fetch one face box per photo when a person filter is active (grid highlight).
-  const loadGridFaceBoxes = async (personId: string, photos: Array<{ photo_id: string }>) => {
-    try {
-      const electronApi = (window as any).electron
-      if (!electronApi?.local?.faceBoxForPhoto) return
-      const boxes: Record<string, { x1: number; y1: number; x2: number; y2: number } | null> = {}
-      for (const p of photos.slice(0, 200)) {
-        try {
-          const fb = await electronApi.local.faceBoxForPhoto(personId, p.photo_id)
-          boxes[p.photo_id] = fb ? { x1: fb.x1, y1: fb.y1, x2: fb.x2, y2: fb.y2 } : null
-        } catch (e) {
-          console.error('faceBoxForPhoto failed', p.photo_id, e)
-        }
-      }
-      setGridFaceBoxes(boxes)
-    } catch (e) {
-      console.error('Failed to load grid face boxes', e)
-    }
-  }
   // Handle person selection
   const handlePersonClick = (personId: string) => {
     setSelectedView('')
@@ -553,247 +141,131 @@ export default function App() {
   }
 
   // Handle search file selection
-  const handleSearchFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSearchFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      setSearchFile(file)
-      searchFace()
+    if (!file) return
+    setLoading(true)
+    try {
+      const res = await searchFace(file)
+      setPhotos(res.photos)
+      setSearchFacesDetected(res.facesDetected)
+      setSearchMatchedPersons(res.matchedPersons)
+      setSelectedPerson(null)
+      setSelectedDisk(null)
+      setSelectedFolder(null)
+      setSelectedView('')
+    } catch (err) {
+      console.error('Search failed', err)
+      setScanError('Search gagal — coba lagi.')
+    } finally {
+      setLoading(false)
     }
   }
 
-  // Map face previews (top persons) by id so sidebar rows can show avatars
-  const previewById = new Map(personPreviews.map(p => [p.person_id, p]))
+  // Remove an added folder and all photos indexed under it (local store)
+  const handleRemoveFolder = async (folder: Folder) => {
+    if (!confirm(`Remove "${folder.name}" and delete all ${folder.photo_count} indexed photos?`)) return
+    const matching = scans.scansRef.current.filter((s) =>
+      s.folder === folder.container_path && (s.status === 'queued' || s.status === 'running')
+    )
+    // Cancel + drop any scan still running for this folder
+    for (const s of matching) {
+      await pauseScan(s.scan_id)
+      removeScan(s.scan_id)
+    }
+    try {
+      await ipc.local.deleteFolder(folder.host_path)
+    } catch (e) {
+      console.error('Failed to remove folder', e)
+      setScanError('Gagal menghapus folder.')
+      return
+    }
+    if (selectedFolder?.folder_id === folder.folder_id) {
+      setSelectedFolder(null)
+      setPhotos([])
+    }
+    await loadFolders()
+    await loadPersons()
+    loadPhotos(scopeRef.current.person, null, scopeRef.current.folder)
+  }
+
+  // Rename person (local store)
+  const handleRenamePerson = async (personId: string) => {
+    if (!personId) return
+    const newName = prompt('Rename person:')
+    if (newName) {
+      await ipc.local.renamePerson(personId, newName)
+      await loadPersons()
+    }
+  }
+
+  // Open a photo in the detail modal — full-res source + zoom + reveal in Finder
+  const openPhoto = (photo: Photo) => {
+    setSelectedPhoto(photo)
+    setPhotoZoom(1)
+  }
+
+  // Delete photo + refresh current scope
+  const handleDeletePhoto = async () => {
+    if (!selectedPhoto) return
+    try {
+      await ipc.local.deletePhoto(selectedPhoto.photo_id)
+    } catch (e) {
+      console.error('Delete photo failed', e)
+    }
+    setSelectedPhoto(null)
+    loadPhotos(selectedPerson, null, selectedFolder?.container_path || null)
+    loadPersons()
+    loadFolders()
+  }
+
+  // Open photo in detail modal — full-res source + zoom + reveal in Finder.
+  // (Grid face boxes were already loaded when the person filter was selected.)
+  const openPhotoAndBoxes = (photo: Photo) => {
+    openPhoto(photo)
+  }
 
   return (
     <div className="app">
-      {/* Sidebar */}
-      <div className="sidebar">
-        <div className="sidebar-header">
-          <div className="logo">Picly</div>
-        </div>
-
-        {scanError && (
-          <div className="scan-error" style={{ color: '#e5484d', fontSize: '13px', padding: '6px 10px' }}>
-            {scanError}
-          </div>
-        )}
-
-        {/* Collections + Folders scroll together; sidebar-bottom stays pinned */}
-        <div className="sidebar-scroll">
-        {/* Collections */}
-        <div className="sidebar-section">
-          <div className="sidebar-section-title">Collections</div>
-          <div className="nav-list">
-            <div className={`nav-item ${selectedView === 'recents' ? 'active' : ''}`} onClick={() => selectView('recents')}>
-              <ClockCounterClockwise size={16} className="nav-icon" /><span>Recents</span>
-            </div>
-            <div className={`nav-item ${selectedView === 'videos' ? 'active' : ''}`} onClick={() => selectView('videos')}>
-              <Video size={16} className="nav-icon" /><span>Videos</span>
-            </div>
-            <div className={`nav-item ${selectedView === 'places' ? 'active' : ''}`} onClick={() => selectView('places')}>
-              <MapPin size={16} className="nav-icon" /><span>Places</span>
-            </div>
-            <div className={`nav-item ${selectedView === 'trash' ? 'active' : ''}`} onClick={() => selectView('trash')}>
-              <Trash size={16} className="nav-icon" /><span>Trash</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Scanning — live scan progress (aktif/baru selesai) lives in the sidebar */}
-        {activeScans.filter((s) => !dismissedScans.has(s.scan_id)).length > 0 && (
-          <div className="sidebar-section">
-            <div className="sidebar-section-title">Scanning</div>
-            <div className="scan-progress sidebar">
-              {activeScans
-                .filter((s) => !dismissedScans.has(s.scan_id))
-                .map((s) => {
-                  const total = s.total || 0
-                  const processed = s.processed || 0
-                  const pct = total > 0
-                    ? Math.min(100, Math.round((processed / total) * 100))
-                    : (s.status === 'done' || s.status === 'error' ? 100 : 0)
-                  const name = (s.folder || '').split('/').filter(Boolean).pop() || 'Folder'
-                  const isQueued = s.status === 'queued'
-                  const isRunning = s.status === 'running'
-                  const isDone = s.status === 'done'
-                  const isError = s.status === 'error'
-                  const isCancelled = s.status === 'cancelled'
-                  return (
-                    <div key={s.scan_id} className="scan-nav-item">
-                      <div className="scan-item-top">
-                        <Folder size={16} className="nav-icon" />
-                        <div className="disk-info">
-                          <div className="disk-name" title={s.folder}>{name}</div>
-                          <div className="disk-space">
-                            {isQueued ? 'Queued…' : isRunning ? `${processed}/${total}` : isDone ? `✓ ${s.scanned} photos` : isCancelled ? 'Stopped' : 'Failed'}
-                          </div>
-                        </div>
-                        <div className="row-actions">
-                          {(isQueued || isRunning) && (
-                            <button className="scan-stop-btn" title="Stop scan" onClick={() => stopScan(s.scan_id)}>
-                              <X size={13} weight="bold" />
-                            </button>
-                          )}
-                          {(isDone || isError || isCancelled) && (
-                            <button className="scan-dismiss-btn" title="Sembunyikan" onClick={() => dismissScan(s.scan_id)}>
-                              <X size={13} weight="bold" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      <div className="progress-bar">
-                        <div
-                          className={`progress-fill${isDone ? ' done' : ''}${isError ? ' error' : ''}${isCancelled ? ' cancelled' : ''}`}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                      <div className="scan-item-sub">
-                        {isRunning && s.current_file ? (
-                          <span className="scan-current" title={s.current_file}>{s.current_file.split('/').pop()}</span>
-                        ) : isQueued ? (
-                          <span>Waiting for a previous scan to finish…</span>
-                        ) : isDone ? (
-                          <span className="scan-done-line">
-                            {s.scanned} new · {s.total_faces} faces · {s.persons} persons
-                            {s.errors ? ` · ${s.errors} errors` : ''}
-                          </span>
-                        ) : isCancelled ? (
-                          <span className="scan-cancelled-line">Stopped at {processed} of {total} files</span>
-                        ) : isError ? (
-                          <span className="scan-error-line">Scan failed{s.errors ? ` (${s.errors} errors)` : ''}</span>
-                        ) : null}
-                      </div>
-                    </div>
-                  )
-                })}
-            </div>
-          </div>
-        )}
-
-        {/* Folders added via '+ Add folder' */}
-        <div className="sidebar-section">
-          <div className="sidebar-section-title-row">
-            <div className="sidebar-section-title">Folders</div>
-            <button className="add-folder-text-btn" onClick={scanFolder} disabled={scanning}>
-              {scanning ? (<><span className="btn-spinner" />Scanning…</>) : '+ Add folder'}
-            </button>
-          </div>
-          <div className="nav-list">
-            {folders.map((folder) => (
-              <div
-                key={folder.folder_id}
-                className={`nav-item ${selectedFolder?.folder_id === folder.folder_id ? 'active' : ''} ${folder.available ? '' : 'unavailable'}`}
-                onClick={() => handleFolderClick(folder)}
-                title={folder.host_path}
-              >
-                <Folder size={16} className="nav-icon" />
-                <div className="disk-info">
-                  <div className="disk-name">{folder.name}</div>
-                  <div className="disk-space">{folder.photo_count} photos{folder.available ? '' : ' · offline'}</div>
-                </div>
-                <div className="row-actions">
-                  <button
-                    className="row-action-btn"
-                    title="Remove folder and its indexed photos"
-                    onClick={(e) => { e.stopPropagation(); removeFolder(folder) }}
-                  >
-                    <Trash size={13} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-        </div>
-
-        {/* Bottom: pinned disk list + API status */}
-        <div className="sidebar-bottom">
-          {disks.length > 0 && (
-            <div className="sidebar-section">
-              <button
-                className="sidebar-section-title sidebar-collapse-btn"
-                onClick={() => {
-                  setDiskCollapsed((c) => {
-                    const next = !c
-                    try { localStorage.setItem('picly:disk-collapsed', next ? '1' : '0') } catch {}
-                    return next
-                  })
-                }}
-              >
-                <CaretRight size={12} className={`section-caret ${diskCollapsed ? '' : 'open'}`} />
-                Disk
-              </button>
-              {!diskCollapsed && (
-                <div className="nav-list">
-                  {disks.map((disk) => (
-                    <div
-                      key={disk.path}
-                      className={`nav-item ${selectedDisk === disk.path ? 'active' : ''}`}
-                      onClick={() => handleDiskClick(disk.path)}
-                    >
-                      <Folder size={16} className="nav-icon" />
-                      <div className="disk-info">
-                        <div className="disk-name">{disk.name}</div>
-                        <div className="disk-space">{disk.free_gb ?? ''}{disk.free_gb !== undefined ? ' GB free' : ''}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          <div className="sidebar-footer">
-            <div>Status: {driveStatus}</div>
-            <div style={{ marginTop: 4 }}>{persons.length} persons indexed</div>
-            {/* Account (auth — optional, entitlement only) */}
-            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-              {authStatus.loggedIn ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
-                  <div style={{ fontSize: 12, opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {authStatus.email}
-                  </div>
-                  <button
-                    onClick={handleLogout}
-                    style={{ fontSize: 11, background: 'none', border: 'none', color: '#8b8b8b', cursor: 'pointer', padding: 0 }}
-                    title="Log out"
-                  >Logout</button>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button
-                    onClick={() => { setAuthModal('login'); setAuthError(null) }}
-                    style={{ flex: 1, fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#2a2a2a', border: '1px solid #3a3a3a', color: '#e8e8e8', cursor: 'pointer' }}
-                  >Login</button>
-                  <button
-                    onClick={() => { setAuthModal('register'); setAuthError(null) }}
-                    style={{ flex: 1, fontSize: 12, padding: '4px 8px', borderRadius: 6, background: 'none', border: '1px solid #3a3a3a', color: '#8b8b8b', cursor: 'pointer' }}
-                  >Register</button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+      <Sidebar
+        scanError={scanError}
+        selectedView={selectedView}
+        onSelectView={selectView}
+        activeScans={activeScans}
+        dismissedScans={dismissedScans}
+        onPause={pauseScan}
+        onResume={resumeScan}
+        onRemove={removeScan}
+        onDismiss={dismissScan}
+        folders={folders}
+        selectedFolder={selectedFolder}
+        onFolderClick={handleFolderClick}
+        onRemoveFolder={handleRemoveFolder}
+        scanning={scanning}
+        onAddFolder={scanFolder}
+        disks={disks}
+        selectedDisk={selectedDisk}
+        onDiskClick={handleDiskClick}
+        diskCollapsed={diskCollapsed}
+        onToggleDisk={() => {
+          setDiskCollapsed((c) => {
+            const next = !c
+            try { localStorage.setItem('picly:disk-collapsed', next ? '1' : '0') } catch {}
+            return next
+          })
+        }}
+        driveStatus={driveStatus}
+        personCount={persons.length}
+        authStatus={authStatus}
+        onLogout={handleLogout}
+        onOpenAuth={(mode) => { setAuthModal(mode); setAuthError(null) }}
+      />
 
       {/* Main content */}
       <div className="main">
         {/* Update banner — a newer release is available (v1: opens GitHub in browser) */}
         {updateInfo?.available && !updateDismissed && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', background: 'linear-gradient(135deg, #1a3a5c, #2d5a8a)', borderBottom: '1px solid rgba(255,255,255,0.1)', fontSize: 13 }}>
-            <div style={{ flex: 1 }}>
-              <strong>Update tersedia — Picly {updateInfo.latest}</strong>
-              {updateInfo.current && <span style={{ opacity: 0.7, marginLeft: 8 }}>(kamu punya {updateInfo.current})</span>}
-            </div>
-            <button
-              onClick={openUpdatePage}
-              style={{ padding: '6px 14px', borderRadius: 6, background: '#fff', border: 'none', color: '#1a3a5c', fontWeight: 600, cursor: 'pointer', fontSize: 12 }}
-            >Update</button>
-            <button
-              onClick={() => setUpdateDismissed(true)}
-              style={{ padding: 6, borderRadius: 6, background: 'none', border: 'none', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 13 }}
-              title="Tutup"
-            >✕</button>
-          </div>
+          <UpdateBanner info={updateInfo} onOpen={openUpdatePage} onDismiss={() => setUpdateDismissed(true)} />
         )}
         {/* Scan progress banner — moved to sidebar (scan status is sidebar context) */}
         <div className="toolbar">
@@ -831,34 +303,13 @@ export default function App() {
           </div>
         </div>
 
-
         {/* Face avatar rail — horizontal scroll nav above the grid */}
         {persons.length > 0 && (
-          <div className="faces-bar">
-            {persons.map((person) => {
-              const preview = previewById.get(person.person_id)
-              const size = Math.min(48, 32 + (person.photo_count || 1) * 1.2)
-              return (
-                <div
-                  key={person.person_id}
-                  className={`face-chip ${selectedPerson === person.person_id ? 'active' : ''}`}
-                  onClick={() => handlePersonClick(person.person_id)}
-                  title={`${person.name} — ${person.photo_count} photos`}
-                >
-                  <img
-                    className="face-chip-img"
-                    style={{ width: size, height: size }}
-                    src={
-                      preview?.face_id
-                        ? `picly://face/${preview.face_id}.jpg`
-                        : `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><rect width='100%25' height='100%25' fill='%23222'/><text x='50%25' y='54%25' font-size='18' fill='%233b82f6' text-anchor='middle' font-family='sans-serif'>${person.name.charAt(0).toUpperCase()}</text></svg>`
-                    }
-                    alt={person.name}
-                  />
-                </div>
-              )
-            })}
-          </div>
+          <FacesBar
+            persons={personPreviews.length > 0 ? personPreviews : persons.map((p) => ({ ...p, photo_count: p.photo_count }))}
+            selectedPerson={selectedPerson}
+            onPersonClick={handlePersonClick}
+          />
         )}
 
         <div className="content">
@@ -887,43 +338,12 @@ export default function App() {
                   )}
                 </div>
               )}
-              <div className="photo-grid">
-                {photos.map((photo) => (
-                  <div
-                    key={photo.photo_id}
-                    className="photo-card"
-                    onClick={() => openPhoto(photo)}
-                  >
-                    <img
-                      src={photo.thumb_path || `picly://thumb/${photo.photo_id}.jpg`}
-                      alt=""
-                      loading="lazy"
-                    />
-                    {selectedPerson && gridFaceBoxes[photo.photo_id] && (
-                      <div
-                        className="grid-face-box"
-                        style={{
-                          left: `${(gridFaceBoxes[photo.photo_id]!.x1 / (photo.width || 1)) * 100}%`,
-                          top: `${(gridFaceBoxes[photo.photo_id]!.y1 / (photo.height || 1)) * 100}%`,
-                          width: `${((gridFaceBoxes[photo.photo_id]!.x2 - gridFaceBoxes[photo.photo_id]!.x1) / (photo.width || 1)) * 100}%`,
-                          height: `${((gridFaceBoxes[photo.photo_id]!.y2 - gridFaceBoxes[photo.photo_id]!.y1) / (photo.height || 1)) * 100}%`,
-                        }}
-                      />
-                    )}
-                    {photo.face_id && (
-                      <img
-                        className="face-overlay"
-                        src={`picly://thumb/${photo.face_id}.jpg`}
-                        alt=""
-                        loading="lazy"
-                      />
-                    )}
-                    {photo.similarity !== undefined && (
-                      <div className="similarity">{Math.round(photo.similarity * 100)}%</div>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <PhotoGrid
+                photos={photos}
+                selectedPerson={selectedPerson}
+                gridFaceBoxes={gridFaceBoxes}
+                onOpenPhoto={openPhotoAndBoxes}
+              />
             </>
           )}
         </div>
@@ -931,147 +351,34 @@ export default function App() {
 
       {/* Photo modal — full-res source + face overlay + reveal in Finder */}
       {selectedPhoto && (
-        <div className="modal-overlay" onClick={() => setSelectedPhoto(null)}>
-          <div className="modal modal-photo" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div className="modal-title">Photo</div>
-              <button className="modal-close" onClick={() => setSelectedPhoto(null)}>×</button>
-            </div>
-            <div className="modal-body">
-              <div className="photo-stage">
-                {/* Zoom controls */}
-                <div className="photo-zoom-controls">
-                  <button className="btn btn-sm" onClick={() => setPhotoZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2)))}>−</button>
-                  <span className="photo-zoom-label">{Math.round(photoZoom * 100)}%</span>
-                  <button className="btn btn-sm" onClick={() => setPhotoZoom((z) => Math.min(4, +(z + 0.25).toFixed(2)))}>+</button>
-                  <button className="btn btn-sm" onClick={() => setPhotoZoom(1)}>Reset</button>
-                </div>
-                <div className="photo-scroll" style={{ cursor: photoZoom > 1 ? 'grab' : 'default' }}>
-                  <div className="photo-scaled" style={{ transform: `scale(${photoZoom})` }}>
-                    <img
-                      className="modal-image"
-                      src={`picly://src/${selectedPhoto.photo_id}.jpg`}
-                      alt=""
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="modal-meta">
-                <div>ID: {selectedPhoto.photo_id}</div>
-                <div>Path: {selectedPhoto.path}</div>
-                {selectedPhoto.width && selectedPhoto.height && (
-                  <div>Original: {selectedPhoto.width}×{selectedPhoto.height}</div>
-                )}
-                {gridFaceBoxes[selectedPhoto.photo_id] !== undefined && selectedPerson && (
-                  <div>Highlight: wajah terpilih ditandai di grid</div>
-                )}
-                {selectedPhoto.similarity !== undefined && (
-                  <div>Similarity: {Math.round(selectedPhoto.similarity * 100)}%</div>
-                )}
-                {selectedPhoto.person_id && (
-                  <div>Person: {persons.find(p => p.person_id === selectedPhoto.person_id)?.name || 'Unknown'}</div>
-                )}
-              </div>
-            </div>
-            <div className="modal-actions">
-              <button
-                className="btn"
-                onClick={() => openLocation(selectedPhoto.path)}
-                title="Reveal the original file in Finder"
-              >
-                Buka lokasi
-              </button>
-              <button
-                className="btn"
-                onClick={() => {
-                  const newName = prompt('Rename person:')
-                  if (newName && selectedPhoto.person_id) {
-                    renamePerson(selectedPhoto.person_id, newName)
-                  }
-                }}
-              >
-                Rename person
-              </button>
-              <button
-                className="btn btn-danger"
-                onClick={async () => {
-                  try {
-                    const electronApi = (window as any).electron
-                    await electronApi?.local?.deletePhoto(selectedPhoto.photo_id)
-                  } catch (e) {
-                    console.error('Delete photo failed', e)
-                  }
-                  setSelectedPhoto(null)
-                  loadPhotos(selectedPerson, null, selectedFolder?.container_path || null)
-                  loadPersons()
-                  loadFolders()
-                }}
-              >
-                Delete photo
-              </button>
-            </div>
-          </div>
-        </div>
+        <PhotoModal
+          photo={selectedPhoto}
+          photoZoom={photoZoom}
+          onSetZoom={setPhotoZoom}
+          onClose={() => setSelectedPhoto(null)}
+          onOpenLocation={ipc.shell.showItem}
+          onRenamePerson={handleRenamePerson}
+          onDeletePhoto={handleDeletePhoto}
+          selectedPerson={selectedPerson}
+          personName={persons.find(p => p.person_id === selectedPhoto.person_id)?.name}
+          gridFaceBoxes={gridFaceBoxes}
+        />
       )}
 
       {/* Auth modal — login / register (account is optional; local features don't require it) */}
       {authModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setAuthModal(null)}>
-          <div
-            style={{ background: '#1e1e1e', border: '1px solid #333', borderRadius: 12, padding: 24, width: 340, boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>
-              {authModal === 'login' ? 'Masuk' : 'Buat Akun'}
-            </div>
-            <div style={{ fontSize: 12, color: '#8b8b8b', marginBottom: 16 }}>
-              Akun untuk entitlement & update. Foto tetap 100% lokal di device ini.
-            </div>
-
-            <label style={{ fontSize: 12, color: '#a0a0a0', display: 'block', marginBottom: 4 }}>Email</label>
-            <input
-              type="email"
-              value={authEmail}
-              onChange={(e) => setAuthEmail(e.target.value)}
-              placeholder="kamu@email.com"
-              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, background: '#141414', border: '1px solid #3a3a3a', color: '#e8e8e8', fontSize: 14, marginBottom: 12, outline: 'none' }}
-            />
-
-            <label style={{ fontSize: 12, color: '#a0a0a0', display: 'block', marginBottom: 4 }}>Password</label>
-            <input
-              type="password"
-              value={authPassword}
-              onChange={(e) => setAuthPassword(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !authBusy) submitAuth(authModal) }}
-              placeholder="Minimal 8 karakter"
-              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, background: '#141414', border: '1px solid #3a3a3a', color: '#e8e8e8', fontSize: 14, marginBottom: 12, outline: 'none' }}
-            />
-
-            {authError && (
-              <div style={{ fontSize: 12, color: '#e5484d', marginBottom: 10 }}>{authError}</div>
-            )}
-
-            <button
-              onClick={() => submitAuth(authModal)}
-              disabled={authBusy}
-              style={{ width: '100%', padding: '10px', borderRadius: 8, background: '#4a7cff', border: 'none', color: '#fff', fontSize: 14, fontWeight: 600, cursor: authBusy ? 'default' : 'pointer', opacity: authBusy ? 0.6 : 1 }}
-            >
-              {authBusy ? 'Memproses…' : authModal === 'login' ? 'Masuk' : 'Daftar'}
-            </button>
-
-            <div style={{ marginTop: 12, fontSize: 12, textAlign: 'center', color: '#8b8b8b' }}>
-              {authModal === 'login' ? (
-                <>Belum punya akun?{' '}
-                  <span style={{ color: '#4a7cff', cursor: 'pointer' }} onClick={() => { setAuthModal('register'); setAuthError(null) }}>Daftar</span>
-                </>
-              ) : (
-                <>Sudah punya akun?{' '}
-                  <span style={{ color: '#4a7cff', cursor: 'pointer' }} onClick={() => { setAuthModal('login'); setAuthError(null) }}>Masuk</span>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
+        <AuthModal
+          mode={authModal}
+          email={authEmail}
+          password={authPassword}
+          busy={authBusy}
+          error={authError}
+          onEmail={setAuthEmail}
+          onPassword={setAuthPassword}
+          onSubmit={() => submitAuth(authModal)}
+          onClose={() => setAuthModal(null)}
+          onSwitchMode={() => { setAuthModal(authModal === 'login' ? 'register' : 'login'); setAuthError(null) }}
+        />
       )}
     </div>
   )
