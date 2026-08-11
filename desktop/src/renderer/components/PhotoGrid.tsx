@@ -55,7 +55,6 @@ type PhotoModalProps = {
   onSetZoom: (z: number | ((prev: number) => number)) => void
   onClose: () => void
   onOpenLocation: (filePath: string) => void
-  onRenamePerson: (personId: string) => void
   onDeletePhoto: () => void
   // Extra meta from the grid scope (person filter / search similarity)
   selectedPerson: string | null
@@ -63,7 +62,7 @@ type PhotoModalProps = {
   gridFaceBoxes: Record<string, FaceBox | null>
 }
 
-export function PhotoModal({ photo, photoZoom, onSetZoom, onClose, onOpenLocation, onRenamePerson, onDeletePhoto, selectedPerson, personName, gridFaceBoxes }: PhotoModalProps) {
+export function PhotoModal({ photo, photoZoom, onSetZoom, onClose, onOpenLocation, onDeletePhoto, selectedPerson, personName, gridFaceBoxes }: PhotoModalProps) {
   const faceBoxForPhoto = gridFaceBoxes[photo.photo_id]
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -115,12 +114,6 @@ export function PhotoModal({ photo, photoZoom, onSetZoom, onClose, onOpenLocatio
             title="Reveal the original file in Finder"
           >
             Buka lokasi
-          </button>
-          <button
-            className="btn"
-            onClick={() => onRenamePerson(photo.person_id || '')}
-          >
-            Rename person
           </button>
           <button
             className="btn btn-danger"

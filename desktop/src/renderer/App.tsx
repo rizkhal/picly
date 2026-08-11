@@ -189,16 +189,6 @@ export default function App() {
     loadPhotos(scopeRef.current.person, null, scopeRef.current.folder)
   }
 
-  // Rename person (local store)
-  const handleRenamePerson = async (personId: string) => {
-    if (!personId) return
-    const newName = prompt('Rename person:')
-    if (newName) {
-      await ipc.local.renamePerson(personId, newName)
-      await loadPersons()
-    }
-  }
-
   // Open a photo in the detail modal — full-res source + zoom + reveal in Finder
   const openPhoto = (photo: Photo) => {
     setSelectedPhoto(photo)
@@ -357,7 +347,6 @@ export default function App() {
           onSetZoom={setPhotoZoom}
           onClose={() => setSelectedPhoto(null)}
           onOpenLocation={ipc.shell.showItem}
-          onRenamePerson={handleRenamePerson}
           onDeletePhoto={handleDeletePhoto}
           selectedPerson={selectedPerson}
           personName={persons.find(p => p.person_id === selectedPhoto.person_id)?.name}
