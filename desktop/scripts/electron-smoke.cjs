@@ -59,9 +59,12 @@ app.whenReady().then(async () => {
     console.log('scan summary:', JSON.stringify(summary));
     if (summary.scanned < 30) return fail(`scan scanned too few photos: ${summary.scanned}`);
 
-    const persons = services.store.listPersons();
-    console.log('persons clustered:', persons.length);
-    if (persons.length < 10) return fail(`unexpectedly few persons: ${persons.length}`);
+    // Use includeNoise: the test dataset is 1 photo per person (man_/woman_*),
+    // so every cluster is single-photo and the noise filter would hide them all.
+    // We're verifying clustering creates distinct persons, not the noise filter.
+    const persons = services.store.listPersons(true);
+    console.log('persons clustered (incl. noise):', persons.length);
+    if (persons.length < 30) return fail(`unexpectedly few persons: ${persons.length}`);
 
     const res = await local.searchPhoto(services, path.join(TEST_PHOTOS, 'woman_001.jpg'));
     console.log('search top hit:', JSON.stringify(res.hits && res.hits[0]));

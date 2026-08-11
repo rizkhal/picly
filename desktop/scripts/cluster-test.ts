@@ -23,6 +23,7 @@ const thumbDir = path.join(dataDir, 'test-cluster-thumbs')
 const LFW_ROOT = '/Users/rizkal/scikit_learn_data/lfw_home/lfw_funneled'
 const PEOPLE = ['George_W_Bush', 'Colin_Powell', 'Tony_Blair', 'Donald_Rumsfeld', 'Gerhard_Schroeder', 'Ariel_Sharon']
 const PER_PERSON = 4
+const THRESHOLD = Number(process.env.CLUSTER_THRESHOLD ?? '0.5')
 
 function dot(a: Float32Array, b: Float32Array): number {
   let s = 0
@@ -35,7 +36,7 @@ async function main(): Promise<void> {
   rmSync(thumbDir, { recursive: true, force: true })
   mkdirSync(dataDir, { recursive: true })
 
-  const store = PhotoStore.open(dbPath)
+  const store = PhotoStore.open(dbPath, { clusterThreshold: THRESHOLD })
   const analysis = await FaceAnalysis.create()
 
   const expectedDir = new Map<string, string>() // personDir -> identity
@@ -56,7 +57,7 @@ async function main(): Promise<void> {
 
   const persons = store.listPersons()
   console.log(`\npersons created: ${persons.length} (identities: ${PEOPLE.length})`)
-  console.log('NOTE: CLUSTER_MATCH_THRESHOLD=0.6 mirrors the Python backend — on hard LFW data it deliberately oversegments (precision over recall). Correctness = no cross-identity mixing + every identity covered.')
+  console.log(`threshold=${THRESHOLD} — CLUSTER_MATCH_THRESHOLD mirrors the Python backend; on hard LFW data it deliberately oversegments (precision over recall). Correctness = no cross-identity mixing + every identity covered.`)
 
   let pass = true
   const usedDirs = new Set<string>()

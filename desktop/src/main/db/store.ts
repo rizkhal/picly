@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { SCHEMA } from './schema'
 import { blobToEmbedding, cosine, embeddingToBlob } from './vec'
 
-export const CLUSTER_MATCH_THRESHOLD = 0.3
+export const CLUSTER_MATCH_THRESHOLD = 0.5
 export const SEARCH_MIN_SIM = 0.5
 
 /**
@@ -13,6 +13,16 @@ export const SEARCH_MIN_SIM = 0.5
  * being closer to ANOTHER cluster, we merge into the closest one instead of
  * seeding a duplicate cluster (prevents the snowball over-split).
  */
+
+export interface StoreOptions {
+  /**
+   * Cosine threshold for joining a face to an existing person cluster
+   * (centroid similarity, see matchPerson). Tuned on LFW: intra-identity sim
+   * is >= 0.62 while inter-identity is <= 0.14, so 0.5 sits safely in between
+   * (0.3 over-merges — a 528-photo blob; 0.6 over-splits small clusters).
+   */
+  clusterThreshold?: number
+}
 
 export interface AddPhotoInput {
   id?: string
@@ -73,18 +83,20 @@ export class PhotoStore {
   private facesCache: FaceCacheRow[] | null = null
   private personCentroids: PersonCentroidRow[] | null = null
   private personSeq = 0
+  private readonly clusterThreshold: number
 
-  private constructor(db: Database.Database) {
+  private constructor(db: Database.Database, options: StoreOptions = {}) {
     this.db = db
+    this.clusterThreshold = options.clusterThreshold ?? CLUSTER_MATCH_THRESHOLD
     this.personSeq = (this.db.prepare('SELECT COUNT(*) AS n FROM persons').get() as { n: number }).n
   }
 
-  static open(dbPath: string): PhotoStore {
+  static open(dbPath: string, options: StoreOptions = {}): PhotoStore {
     const db = new Database(dbPath)
     db.pragma('journal_mode = WAL')
     db.pragma('foreign_keys = ON')
     db.exec(SCHEMA)
-    return new PhotoStore(db)
+    return new PhotoStore(db, options)
   }
 
   close(): void {
@@ -256,7 +268,12 @@ export class PhotoStore {
 
     let personId: string
     let isNewPerson = false
-    if (match && match.centroid && cosine(face.embedding, match.centroid) >= CLUSTER_MATCH_THRESHOLD) {
+    // Join decision uses CENTROID similarity (mirror the Python backend).
+    // Face-to-face matching looks attractive but lets a foreign face stick to a
+    // large cluster through a single lookalike member (contamination at scale);
+    // the centroid is robust to that — an outlier face scores low against the
+    // cluster average and seeds its own cluster instead.
+    if (match && match.centroid && cosine(face.embedding, match.centroid) >= this.clusterThreshold) {
       personId = match.personId
       // Update centroid as a running average over the cluster's face count.
       // (A 50/50 blend with the previous centroid drifts toward the first
@@ -292,31 +309,25 @@ export class PhotoStore {
   }
 
   /**
-   * Nearest person via FACE-to-FACE cosine (not centroid).
+   * Nearest person via CENTROID cosine (mirror the Python backend).
    *
-   * Comparing against the centroid is fragile: once a cluster grows large the
-   * centroid becomes an average and legitimate faces that differ slightly from
-   * the mean drop below threshold (causing over-split). The max face-to-face
-   * similarity keeps clusters together as long as ANY member face matches
-   * (e.g. two faces 0.96 similar stay merged even if the centroid sim is 0.7).
+   * The centroid is the cluster's running average embedding. Comparing a new
+   * face against centroids (rather than member faces) is robust to lookalike
+   * contamination — see clusterFace for the tradeoff vs face-to-face matching.
    */
-  private matchPerson(embedding: Float32Array): { personId: string; name: string; centroid: Float32Array | null } | null {
-    this.facesCache ??= this.loadFacesCache()
-    let best: { personId: string; name: string; sim: number } | null = null
+  private matchPerson(embedding: Float32Array): { personId: string; centroid: Float32Array | null } | null {
+    this.personCentroids ??= this.loadPersonCentroids()
+    let best: { personId: string; centroid: Float32Array | null } | null = null
     let bestSim = -Infinity
-    for (const f of this.facesCache) {
-      if (!f.personId) continue
-      const sim = cosine(embedding, f.embedding)
+    for (const p of this.personCentroids) {
+      if (!p.centroid) continue
+      const sim = cosine(embedding, p.centroid)
       if (sim > bestSim) {
         bestSim = sim
-        best = { personId: f.personId, name: '', sim }
+        best = { personId: p.personId, centroid: p.centroid }
       }
     }
-    if (!best) return null
-    // Name for the return (cheap lookup on demand)
-    const p = this.personCentroids ??= this.loadPersonCentroids()
-    const row = p.find((x) => x.personId === best.personId)
-    return { personId: best.personId, name: row?.name ?? '', centroid: row?.centroid ?? null }
+    return best
   }
 
   /**
