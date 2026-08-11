@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { ClockCounterClockwise, Video, MapPin, Trash, Folder, MagnifyingGlass, Camera, X, CaretRight } from '@phosphor-icons/react'
 
 type Person = { person_id: string; name: string; photo_count: number }
-type Photo = { photo_id: string; path: string; thumb_path?: string; similarity?: number; person_id?: string; person_name?: string; face_id?: string; matched_persons?: string[] }
+type Photo = { photo_id: string; path: string; thumb_path?: string; similarity?: number; person_id?: string; person_name?: string; face_id?: string; matched_persons?: string[]; width?: number | null; height?: number | null }
 type Disk = { name: string; path: string; free_gb?: number; total_gb?: number }
 type Folder = { folder_id: string; host_path: string; container_path: string; name: string; photo_count: number; available: boolean }
 type ScanProgress = {
@@ -30,6 +30,8 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
+  const [photoFaces, setPhotoFaces] = useState<Array<{ faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null }>>([])
+  const [photoZoom, setPhotoZoom] = useState(1)
   const [driveStatus, setDriveStatus] = useState('Checking...')
   // Disk section collapse — persisted so the choice survives restarts
   const [diskCollapsed, setDiskCollapsed] = useState<boolean>(() => {
@@ -318,6 +320,31 @@ export default function App() {
     }
   }
 
+  // Open a photo in the detail modal — full-res source + face overlay boxes
+  const openPhoto = async (photo: Photo) => {
+    setSelectedPhoto(photo)
+    setPhotoZoom(1)
+    setPhotoFaces([])
+    try {
+      const electronApi = (window as any).electron
+      if (electronApi?.local?.photoFaces) {
+        const faces = await electronApi.local.photoFaces(photo.photo_id)
+        setPhotoFaces(faces || [])
+      }
+    } catch (e) {
+      console.error('Failed to load photo faces', e)
+    }
+  }
+
+  // Reveal the original file in Finder/Explorer
+  const openLocation = async (filePath: string) => {
+    try {
+      const electronApi = (window as any).electron
+      await electronApi?.showItem?.(filePath)
+    } catch (e) {
+      console.error('Failed to open location', e)
+    }
+  }
   // Local services status — no backend health check needed (drive status shows
   // whether the store is ready; local scan/search work offline by design).
   useEffect(() => {
@@ -826,7 +853,7 @@ export default function App() {
                   <div
                     key={photo.photo_id}
                     className="photo-card"
-                    onClick={() => setSelectedPhoto(photo)}
+                    onClick={() => openPhoto(photo)}
                   >
                     <img
                       src={photo.thumb_path || `picly://thumb/${photo.photo_id}.jpg`}
@@ -862,23 +889,61 @@ export default function App() {
         </div>
       </div>
 
-      {/* Photo modal */}
+      {/* Photo modal — full-res source + face overlay + reveal in Finder */}
       {selectedPhoto && (
         <div className="modal-overlay" onClick={() => setSelectedPhoto(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal-photo" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">Photo</div>
               <button className="modal-close" onClick={() => setSelectedPhoto(null)}>×</button>
             </div>
             <div className="modal-body">
-              <img
-                className="modal-image"
-                src={selectedPhoto.thumb_path || `picly://thumb/${selectedPhoto.photo_id}.jpg`}
-                alt=""
-              />
+              <div className="photo-stage">
+                {/* Zoom controls */}
+                <div className="photo-zoom-controls">
+                  <button className="btn btn-sm" onClick={() => setPhotoZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2)))}>−</button>
+                  <span className="photo-zoom-label">{Math.round(photoZoom * 100)}%</span>
+                  <button className="btn btn-sm" onClick={() => setPhotoZoom((z) => Math.min(4, +(z + 0.25).toFixed(2)))}>+</button>
+                  <button className="btn btn-sm" onClick={() => setPhotoZoom(1)}>Reset</button>
+                </div>
+                <div className="photo-scroll" style={{ cursor: photoZoom > 1 ? 'grab' : 'default' }}>
+                  <div className="photo-scaled" style={{ transform: `scale(${photoZoom})` }}>
+                    <img
+                      className="modal-image"
+                      src={`picly://src/${selectedPhoto.photo_id}.jpg`}
+                      alt=""
+                    />
+                    {/* Face overlay boxes — mapped from original bbox to displayed size */}
+                    {photoFaces.map((f) => {
+                      const isActive = selectedPerson && f.personId === selectedPerson
+                      const pw = selectedPhoto.width || 1
+                      const ph = selectedPhoto.height || 1
+                      return (
+                        <div
+                          key={f.faceId}
+                          className={`face-box ${isActive ? 'active' : ''}`}
+                          style={{
+                            left: `${(f.x1 / pw) * 100}%`,
+                            top: `${(f.y1 / ph) * 100}%`,
+                            width: `${((f.x2 - f.x1) / pw) * 100}%`,
+                            height: `${((f.y2 - f.y1) / ph) * 100}%`,
+                          }}
+                          title={f.personName || 'Unknown'}
+                        />
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
               <div className="modal-meta">
                 <div>ID: {selectedPhoto.photo_id}</div>
                 <div>Path: {selectedPhoto.path}</div>
+                {selectedPhoto.width && selectedPhoto.height && (
+                  <div>Original: {selectedPhoto.width}×{selectedPhoto.height}</div>
+                )}
+                {photoFaces.length > 0 && (
+                  <div>Faces: {photoFaces.length}{selectedPerson ? ` — highlight person filter` : ''}</div>
+                )}
                 {selectedPhoto.similarity !== undefined && (
                   <div>Similarity: {Math.round(selectedPhoto.similarity * 100)}%</div>
                 )}
@@ -888,6 +953,13 @@ export default function App() {
               </div>
             </div>
             <div className="modal-actions">
+              <button
+                className="btn"
+                onClick={() => openLocation(selectedPhoto.path)}
+                title="Reveal the original file in Finder"
+              >
+                Buka lokasi
+              </button>
               <button
                 className="btn"
                 onClick={() => {

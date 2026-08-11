@@ -32,12 +32,13 @@ app.whenReady().then(() => {
   // Serve cached thumbnails + face crops from the local store:
   //   picly://thumb/<photoId>.jpg  — full-photo thumbnail
   //   picly://face/<faceId>.jpg    — cropped face preview
+  //   picly://src/<photoId>.jpg    — the ORIGINAL source image (full resolution)
   protocol.handle('picly', (req) => {
     try {
       const url = new URL(req.url);
-      const host = url.hostname; // 'thumb' | 'face'
+      const host = url.hostname; // 'thumb' | 'face' | 'src'
+      const name = url.pathname.replace(/^\//, '');
       if (host === 'thumb' || host === 'face') {
-        const name = url.pathname.replace(/^\//, '');
         // Only UUIDs + .jpg — prevents path traversal
         if (!/^[0-9a-f-]{36}\.jpg$/.test(name)) {
           return new Response('bad request', { status: 400 });
@@ -45,6 +46,16 @@ app.whenReady().then(() => {
         const file = path.join(getLocalServices().config.thumbDir, name);
         if (!fs.existsSync(file)) return new Response('not found', { status: 404 });
         return net.fetch(pathToFileURL(file).toString());
+      }
+      if (host === 'src') {
+        // Only UUIDs + .jpg — resolves the stored original photo path (no traversal)
+        if (!/^[0-9a-f-]{36}\.jpg$/.test(name)) {
+          return new Response('bad request', { status: 400 });
+        }
+        const photoId = name.replace(/\.jpg$/, '');
+        const photo = getLocalServices().store.getPhoto(photoId);
+        if (!photo || !photo.path || !fs.existsSync(photo.path)) return new Response('not found', { status: 404 });
+        return net.fetch(pathToFileURL(photo.path).toString());
       }
       return new Response('not found', { status: 404 });
     } catch {

@@ -129,3 +129,8 @@ export function listPersonPreviews(services: LocalServices, ids: string[]): unkn
     faceUrl: p.faceId ? `picly://face/${p.faceId}.jpg` : null,
   }))
 }
+
+/** Faces (bbox + person) for one photo, for the detail-view overlay. */
+export function photoFaces(services: LocalServices, photoId: string): unknown[] {
+  return services.store.facesForPhotoView(photoId)
+}
