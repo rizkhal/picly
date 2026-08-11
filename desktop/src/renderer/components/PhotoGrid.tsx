@@ -35,7 +35,7 @@ export function PhotoGrid({ photos, selectedPerson, gridFaceBoxes, onOpenPhoto }
           {photo.face_id && (
             <img
               className="face-overlay"
-              src={`picly://thumb/${photo.face_id}.jpg`}
+              src={`picly://face/${photo.face_id}.jpg`}
               alt=""
               loading="lazy"
             />

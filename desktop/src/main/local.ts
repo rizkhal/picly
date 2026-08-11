@@ -56,6 +56,10 @@ export function startScan(
       thumbDir: services.config.thumbDir,
       onProgress,
       shouldCancel: () => cancelled,
+      // Pass OUR id so progress events + summary carry the same id the renderer
+      // registered — otherwise the renderer sees a queued row (our id) plus a
+      // fresh row (the scanner's own id) = double rows.
+      scanId,
       // Resume-friendly: skip files already indexed under this folder so the
       // progress bar starts from the remaining work, not the whole folder.
       // (In-loop hash/path dedup in scanner.ts stays as a safety net.)

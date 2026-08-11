@@ -3,8 +3,16 @@ import { randomUUID } from 'node:crypto'
 import { SCHEMA } from './schema'
 import { blobToEmbedding, cosine, embeddingToBlob } from './vec'
 
-export const CLUSTER_MATCH_THRESHOLD = 0.5
+export const CLUSTER_MATCH_THRESHOLD = 0.3
 export const SEARCH_MIN_SIM = 0.5
+
+/**
+ * When a face matches no existing cluster (sim < CLUSTER_MATCH_THRESHOLD to
+ * every centroid), it seeds a NEW cluster whose centroid is that face. But if
+ * the face matched a cluster with sim >= CLUSTER_MATCH_THRESHOLD while also
+ * being closer to ANOTHER cluster, we merge into the closest one instead of
+ * seeding a duplicate cluster (prevents the snowball over-split).
+ */
 
 export interface AddPhotoInput {
   id?: string
@@ -186,20 +194,27 @@ export class PhotoStore {
       .all(personId, limit) as Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null }>
   }
 
-  /** Face preview data for each person: one representative face + its photo path. */
+  /**
+   * Face preview data for each person: one representative face + its photo path.
+   * Uses the MEDIAN rowid face (middle of the cluster's insertion order) so the
+   * preview isn't a random early crop — it's a stable, central sample.
+   */
   listPersonPreviews(ids: string[]): Array<{ personId: string; faceId: string; photoPath: string | null }> {
     if (ids.length === 0) return []
     const placeholders = ids.map(() => '?').join(',')
-    // Pick one representative face per person (the earliest inserted via rowid),
-    // avoiding ties from second-resolution created_at timestamps.
+    // Pick the median-rowid face per person: rank faces by rowid, take the one
+    // at the middle. Deterministic + central (not the first or last crop).
     return this.db
       .prepare(
-        `SELECT pr.id AS personId, f.id AS faceId, p.path AS photoPath
+        `WITH ranked AS (
+           SELECT person_id, id, photo_id, ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY rowid) AS rn,
+                  COUNT(*) OVER (PARTITION BY person_id) AS cnt
+           FROM faces
+         )
+         SELECT pr.id AS personId, r.id AS faceId, p.path AS photoPath
          FROM persons pr
-         JOIN faces f ON f.person_id = pr.id
-         JOIN photos p ON p.id = f.photo_id
-         JOIN (SELECT person_id, MIN(rowid) AS rowid FROM faces GROUP BY person_id) first
-           ON first.person_id = f.person_id AND first.rowid = f.rowid
+         JOIN ranked r ON r.person_id = pr.id AND r.rn = (r.cnt + 1) / 2
+         JOIN photos p ON p.id = r.photo_id
          WHERE pr.id IN (${placeholders})`,
       )
       .all(...ids) as Array<{ personId: string; faceId: string; photoPath: string | null }>
@@ -239,11 +254,16 @@ export class PhotoStore {
 
     let personId: string
     let isNewPerson = false
-    if (match) {
+    if (match && match.centroid && cosine(face.embedding, match.centroid) >= CLUSTER_MATCH_THRESHOLD) {
       personId = match.personId
-      const old = match.centroid ?? face.embedding
+      // Update centroid as a running average over the cluster's face count.
+      // (A 50/50 blend with the previous centroid drifts toward the first
+      // faces; a batch-aware average keeps the centroid centered.)
+      const old = match.centroid
+      const n = (this.db.prepare(`SELECT COUNT(*) AS n FROM faces WHERE person_id = ?`).get(personId) as { n: number }).n
       const next = new Float32Array(512)
-      for (let i = 0; i < 512; i++) next[i] = (old[i] + face.embedding[i]) / 2
+      const w = n / (n + 1)
+      for (let i = 0; i < 512; i++) next[i] = old[i] * w + face.embedding[i] * (1 - w)
       this.db
         .prepare(`UPDATE persons SET centroid = ?, updated_at = datetime('now') WHERE id = ?`)
         .run(embeddingToBlob(next), personId)
@@ -269,31 +289,55 @@ export class PhotoStore {
     return { faceId, personId, isNewPerson }
   }
 
-  /** Nearest person centroid with cosine > threshold, else null. */
+  /**
+   * Nearest person via FACE-to-FACE cosine (not centroid).
+   *
+   * Comparing against the centroid is fragile: once a cluster grows large the
+   * centroid becomes an average and legitimate faces that differ slightly from
+   * the mean drop below threshold (causing over-split). The max face-to-face
+   * similarity keeps clusters together as long as ANY member face matches
+   * (e.g. two faces 0.96 similar stay merged even if the centroid sim is 0.7).
+   */
   private matchPerson(embedding: Float32Array): { personId: string; name: string; centroid: Float32Array | null } | null {
-    this.personCentroids ??= this.loadPersonCentroids()
-    let best: PersonCentroidRow | null = null
-    let bestSim = CLUSTER_MATCH_THRESHOLD
-    for (const p of this.personCentroids) {
-      if (!p.centroid) continue
-      const sim = cosine(embedding, p.centroid)
+    this.facesCache ??= this.loadFacesCache()
+    let best: { personId: string; name: string; sim: number } | null = null
+    let bestSim = -Infinity
+    for (const f of this.facesCache) {
+      if (!f.personId) continue
+      const sim = cosine(embedding, f.embedding)
       if (sim > bestSim) {
         bestSim = sim
-        best = p
+        best = { personId: f.personId, name: '', sim }
       }
     }
-    return best ? { personId: best.personId, name: best.name, centroid: best.centroid } : null
+    if (!best) return null
+    // Name for the return (cheap lookup on demand)
+    const p = this.personCentroids ??= this.loadPersonCentroids()
+    const row = p.find((x) => x.personId === best.personId)
+    return { personId: best.personId, name: row?.name ?? '', centroid: row?.centroid ?? null }
   }
 
-  listPersons(): PersonSummary[] {
+  /**
+   * Person summaries, newest-first. Noise clusters (persons that appear in a
+   * single photo with a single face — usually background guests or detection
+   * artifacts) are hidden unless includeNoise is set. They stay in the DB;
+   * hiding them keeps the face filter from cluttering with one-off "Person N".
+   */
+  listPersons(includeNoise = false): PersonSummary[] {
     return this.db
       .prepare(
-        `SELECT p.id AS personId, p.name,
-                COUNT(DISTINCT f.photo_id) AS photoCount,
-                COUNT(f.id) AS faceCount
-         FROM persons p LEFT JOIN faces f ON f.person_id = p.id
-         GROUP BY p.id
-         ORDER BY photoCount DESC, p.created_at ASC`,
+        `WITH sizes AS (
+           SELECT p.id, p.name, p.created_at,
+                  COUNT(DISTINCT f.photo_id) AS photoCount,
+                  COUNT(f.id) AS faceCount
+           FROM persons p LEFT JOIN faces f ON f.person_id = p.id
+           GROUP BY p.id
+         )
+         SELECT id AS personId, name, photoCount, faceCount
+         FROM sizes
+         WHERE faceCount > 0
+           AND (${includeNoise ? '1=1' : `faceCount >= 2 OR photoCount >= 2`})
+         ORDER BY photoCount DESC, created_at ASC`,
       )
       .all() as PersonSummary[]
   }
