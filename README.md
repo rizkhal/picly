@@ -104,6 +104,20 @@ build time. `PICLY_API_URL` always wins when set.
 | `GET /app/update/check?current=` | public | Convenience: is there a newer version? |
 | `GET /health`, `/ready` | public | Health / readiness |
 
+### Landing page (web)
+
+The landing page (`web/`) is a static React+Vite site (hero, features, how it
+works, privacy, CTA). It has **no backend dependency** — the download CTA links
+directly to GitHub Releases. Serve it via Docker:
+
+```bash
+docker compose up -d --build web   # nginx → http://127.0.0.1:8080
+```
+
+- `web/Dockerfile` builds with bun, then serves the static `dist/` via nginx
+- `web/nginx.conf` — SPA fallback + aggressive caching for hashed assets
+- Bound to `127.0.0.1:8080` in `docker-compose.yml` (same as the backend)
+
 - Passwords hashed with argon2id (`Bun.password`), refresh tokens stored hashed + revocable
 - The update manifest is **public** — it only carries a version + GitHub release URL, and staying available matters more than being gated
 - The manifest (version/url/notes) lives in `backend/src/update.ts` — bump it when releasing
