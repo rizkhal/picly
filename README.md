@@ -1,6 +1,36 @@
-# Picly
+<p align="center">
+  <img src="assets/logo-128.png" width="96" alt="Picly logo" />
+</p>
 
-Face search from local drives. Desktop app, no cloud required.
+<h1 align="center">Picly</h1>
+
+<p align="center">
+  <strong>Face search from your local drives.</strong><br/>
+  Desktop app, no cloud required — everything runs on your device.
+</p>
+
+<p align="center">
+  <a href="#features"><img alt="Features" src="https://img.shields.io/badge/-Features-3b82f6" /></a>
+  <a href="#stack"><img alt="Stack" src="https://img.shields.io/badge/-Stack-3b82f6" /></a>
+  <a href="#run-the-desktop-app-local-no-backend-needed"><img alt="Run" src="https://img.shields.io/badge/-Run-3b82f6" /></a>
+  <a href="#build--package-macos"><img alt="Build" src="https://img.shields.io/badge/-Build-3b82f6" /></a>
+  <a href="#desktop-ml-pipeline-node--onnx-runtime"><img alt="ML" src="https://img.shields.io/badge/-ML%20Pipeline-3b82f6" /></a>
+  <br/>
+  <img alt="Platform" src="https://img.shields.io/badge/macOS-Apple%20Silicon-000000" />
+  <img alt="ML" src="https://img.shields.io/badge/ML-ONNX%20Runtime-3b82f6" />
+  <img alt="Storage" src="https://img.shields.io/badge/Storage-SQLite-3b82f6" />
+  <img alt="Offline" src="https://img.shields.io/badge/Offline-100%25-22c55e" />
+</p>
+
+---
+
+## Features
+
+- **🔍 Face search** — drop a photo and find every matching face across your drives
+- **👤 Auto-tagging** — InsightFace clustering groups the same person across photos
+- **📁 Local-first** — SQLite + ONNX run entirely on-device; your photos never leave your machine
+- **⚡ Built for macOS** — Apple Silicon native, packaged as a DMG
+- **🌐 Optional account** — login only for updates; all local features work without it
 
 ## Stack
 
@@ -183,3 +213,7 @@ one binary.)
 - Drive handling is **desktop app responsibility**, not backend
 - Models: **dev** reads `~/.insightface/models/buffalo_l/` (override `PICLY_MODELS_DIR`);
   **packaged** apps ship them inside `Contents/Resources/models` — no manual setup needed
+
+## License
+
+MIT
