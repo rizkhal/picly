@@ -1,8 +1,9 @@
 const { app, BrowserWindow, ipcMain, dialog, protocol, net, shell, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { getApiBase } = require('./config.cjs');
 
-const API_BASE = process.env.PICLY_API_URL || 'http://localhost:8000';
+const API_BASE = getApiBase();
 
 // macOS menu bar (next to the Apple logo) shows this — default is "Electron".
 // Set before window/UI creation so the app menu label follows the app name.

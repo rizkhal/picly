@@ -10,8 +10,9 @@ const { safeStorage, app } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { getApiBase } = require('./config.cjs');
 
-const API_BASE = process.env.PICLY_API_URL || 'http://localhost:8000';
+const API_BASE = getApiBase();
 // userData dir is only available once app is ready / under full Electron; fall
 // back to a stable temp path for headless runs (ELECTRON_RUN_AS_NODE).
 const USER_DATA =

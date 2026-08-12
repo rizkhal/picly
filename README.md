@@ -83,6 +83,17 @@ bun run src/index.ts   # serves /auth/*, /app/update, /health
 
 Or via Docker: `docker compose up -d --build` (binds `127.0.0.1:8000`).
 
+**How the desktop app finds the backend** (`desktop/src/main/config.cjs`):
+
+| Context | URL |
+|---|---|
+| `PICLY_API_URL` env set | uses that value (override for staging/self-host) |
+| Packaged app (release build) | `https://api.picly.app` (production default) |
+| Dev (`electron .` / `bun run dev`) | `http://localhost:8000` (local Docker) |
+
+Resolution happens at **runtime** in the Electron main process — not baked in at
+build time. `PICLY_API_URL` always wins when set.
+
 | Endpoint | Auth | Description |
 |---|---|---|
 | `POST /auth/register` | public | Create account (email + password ≥ 8 chars), rate-limited 5/15min/IP |

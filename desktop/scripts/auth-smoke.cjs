@@ -15,8 +15,9 @@ const { safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { getApiBase } = require(path.join(__dirname, '..', 'src', 'main', 'config.cjs'));
 
-const API = process.env.PICLY_API_URL || 'http://localhost:8000';
+const API = getApiBase();
 const EMAIL = `smoke-${Date.now()}@picly.test`;
 
 async function run() {
