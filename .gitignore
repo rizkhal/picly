@@ -40,3 +40,5 @@ uploads/
 
 # Bundled ONNX models (fetched by scripts/fetch-models.mjs — ~190MB, never commit)
 desktop/models/
+# npm lockfile (project uses bun.lock; CI runs npm install without lockfile)
+desktop/package-lock.json

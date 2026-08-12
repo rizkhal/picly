@@ -45,6 +45,11 @@ copyFileSync(join(release, 'better_sqlite3.node'), join(abiDir, 'host.node'));
 // 2. Electron ABI — only when Electron is installed.
 if (electronVersion) {
   console.log(`rebuild-native: better-sqlite3 for Electron ${electronVersion}…`);
+
+  // Point node-gyp at the Electron headers via --dist-url. node-gyp downloads
+  // them into its cache (~/Library/Caches/node-gyp) on first use; --nodedir
+  // with @electron/get headers is NOT supported (artifact resolves to a 404),
+  // so keep the proven --dist-url path for fresh CI runners.
   gyp([
     'rebuild',
     '--release',

@@ -13,18 +13,22 @@ jobs:
     runs-on: macos-14-arm64
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
 
-      # npm install runs postinstall: fix-electron + rebuild-native.mjs
-      # (compiles better-sqlite3 for BOTH host Node and Electron ABI), plus
-      # trustedDependencies lifecycle (electron download, sharp libvips,
-      # onnxruntime binary). Without these the packaged app crashes.
+      # Project is bun-based (desktop/bun.lock committed). bun runs postinstall
+      # (fix-electron + rebuild-native) for the project's own scripts, which
+      # compile better-sqlite3 for BOTH host Node and Electron ABI.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      # bun install --frozen-lockfile: deterministic install from bun.lock.
+      # trustedDependencies in package.json lets bun run the electron download +
+      # sharp/onnxruntime native postinstall; without them the packaged app
+      # crashes. (No package-lock.json on purpose — project is bun-based.)
       - name: Install deps (postinstall rebuilds native modules)
         run: |
           cd desktop
-          npm install
+          bun install --frozen-lockfile
 
       # Models are NOT committed to git (~190MB) — fetch det_10g + w600k_r50
       # into desktop/models/ (gitignored), which electron-builder bundles via
