@@ -35,11 +35,30 @@
       "src/main/**/*",
       "build/icon.png"
     ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*",
+      "node_modules/onnxruntime-node/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "models",
+        "to": "models"
+      }
+    ],
     "mac": {
-      "target": "dmg",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64"]
+        }
+      ],
       "icon": "build/icon.icns",
-      "artifactName": "Picly-${version}.${ext}",
-      "category": "public.app-category.graphics-design"
+      "artifactName": "Picly-${version}-${arch}.${ext}",
+      "category": "public.app-category.graphics-design",
+      "hardenedRuntime": false
     },
     "win": {
       "target": "nsis",
@@ -76,6 +95,9 @@
     "vite": "^6.0.3"
   },
   "trustedDependencies": [
-    "electron"
+    "electron",
+    "better-sqlite3",
+    "sharp",
+    "onnxruntime-node"
   ]
 }

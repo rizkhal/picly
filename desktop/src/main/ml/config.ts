@@ -32,7 +32,20 @@ export interface ModelConfig {
 }
 
 export function defaultModelsDir(): string {
-  return process.env.PICLY_MODELS_DIR ?? path.join(os.homedir(), '.insightface', 'models')
+  if (process.env.PICLY_MODELS_DIR) return process.env.PICLY_MODELS_DIR
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const electron = require('electron')
+    if (electron?.app?.isPackaged) {
+      // @ts-expect-error resourcesPath is provided by Electron, not @types/node
+      return path.join(process.resourcesPath, 'models')
+    }
+  } catch {
+    // Not running inside Electron (CLI tests) — fall through.
+  }
+
+  return path.join(os.homedir(), '.insightface', 'models')
 }
 
 export function buffaloL(modelsDir: string = defaultModelsDir()): ModelConfig {

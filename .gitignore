@@ -37,3 +37,6 @@ uploads/
 
 # Desktop local database + thumbnails
 /desktop/data/
+
+# Bundled ONNX models (fetched by scripts/fetch-models.mjs — ~190MB, never commit)
+desktop/models/
