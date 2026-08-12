@@ -38,6 +38,11 @@ uploads/
 # Desktop local database + thumbnails
 /desktop/data/
 
+# Web (landing page)
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
+
 # Bundled ONNX models (fetched by scripts/fetch-models.mjs — ~190MB, never commit)
 desktop/models/
 # npm lockfile (project uses bun.lock; CI runs npm install without lockfile)
