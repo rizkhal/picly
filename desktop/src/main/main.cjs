@@ -29,6 +29,9 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Keep DevTools available in dev (VITE_DEV_SERVER_URL) for debugging;
+      // disable in the packaged app so end users can't inspect internals.
+      devTools: !app.isPackaged,
     },
   });
 
@@ -36,7 +39,10 @@ function createWindow() {
     win.loadURL(process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173');
     win.webContents.openDevTools();
   } else {
-    win.loadFile(path.join(__dirname, '../dist/index.html'));
+    // Packaged: renderer lives at app.asar/dist/index.html (electron-builder
+    // "files" puts dist/ at the asar root). __dirname is app.asar/src/main,
+    // so index.html is TWO levels up, not one.
+    win.loadFile(path.join(__dirname, '../../dist/index.html'));
   }
 
   // Keep the title bar as "Picly" even if the page never sets a title.

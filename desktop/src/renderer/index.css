@@ -410,6 +410,13 @@ html, body, #root {
   background: var(--surface-hover, #2a2a2a);
 }
 
+.settings-gear-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
 /* Settings page (main panel) */
 .settings-page {
   flex: 1;

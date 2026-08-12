@@ -38,7 +38,7 @@ export default function App() {
   const auth = useAuth()
   const {
     authStatus, authModal, setAuthModal, authEmail, setAuthEmail, authPassword, setAuthPassword,
-    authBusy, authError, setAuthError, updateInfo, updateDismissed, setUpdateDismissed,
+    authBusy, authError, setAuthError, updateInfo, updateDismissed, setUpdateDismissed, updateChecking,
     submitAuth, handleLogout, checkForUpdate, openUpdatePage,
   } = auth
 
@@ -239,6 +239,7 @@ export default function App() {
         }}
         driveStatus={driveStatus}
         personCount={persons.length}
+        authEmail={authStatus.loggedIn ? authStatus.email : null}
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
@@ -251,6 +252,7 @@ export default function App() {
             onLogout={handleLogout}
             onOpenAuth={(mode) => { setAuthModal(mode); setAuthError(null) }}
             updateInfo={updateInfo}
+            updateChecking={updateChecking}
             onCheckUpdate={() => checkForUpdate(false)}
             onOpenUpdate={openUpdatePage}
             onClose={() => setSettingsOpen(false)}

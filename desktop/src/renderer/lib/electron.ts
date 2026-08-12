@@ -248,16 +248,32 @@ export const auth = {
       console.error('Logout failed', e)
     }
   },
+  /** Get a fresh access token for authenticated backend calls (main does refresh). */
+  async getAccessToken(): Promise<string | null> {
+    const api = bridge()
+    if (!api?.auth?.getAccessToken) return null
+    try {
+      const res = await api.auth.getAccessToken()
+      return res?.ok ? (res.accessToken || null) : null
+    } catch (e) {
+      console.error('getAccessToken failed', e)
+      return null
+    }
+  },
 }
 
-/** Updates */
+/** Updates — reachable when the backend is up (in-app update manifest). */
 export const update = {
   async check(): Promise<UpdateInfo> {
     const api = bridge()
-    if (!api?.checkUpdate) return { available: false }
+    if (!api?.checkUpdate) return { available: false, error: 'update_check_unavailable' }
     try {
       const res = await api.checkUpdate()
-      return res || { available: false }
+      // Network failure / backend down -> surface a clear, non-blocking error
+      if (!res || typeof res.available !== 'boolean') {
+        return { available: false, error: res?.error || 'Gagal menghubungi server' }
+      }
+      return res
     } catch (e) {
       return { available: false, error: e instanceof Error ? e.message : String(e) }
     }

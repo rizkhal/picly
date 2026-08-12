@@ -108,6 +108,7 @@ type SidebarProps = {
   driveStatus: string
   personCount: number
   onOpenSettings: () => void
+  authEmail?: string | null
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -117,7 +118,7 @@ export function Sidebar(props: SidebarProps) {
     folders, selectedFolder, onFolderClick, onRemoveFolder,
     onRescanFolder, scanning, onAddFolder,
     disks, selectedDisk, onDiskClick, diskCollapsed, onToggleDisk,
-    driveStatus, personCount, onOpenSettings,
+    driveStatus, personCount, onOpenSettings, authEmail,
   } = props
   const visibleScans = activeScans.filter((s) => !dismissedScans.has(s.scan_id))
   return (
@@ -237,7 +238,7 @@ export function Sidebar(props: SidebarProps) {
             title="Settings"
           >
             <GearSix size={15} weight="bold" />
-            <span>Settings</span>
+            <span className="settings-gear-label">{authEmail || 'Settings'}</span>
           </button>
         </div>
       </div>

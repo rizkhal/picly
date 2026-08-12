@@ -7,6 +7,7 @@ type SettingsPageProps = {
   onLogout: () => void
   onOpenAuth: (mode: 'login' | 'register') => void
   updateInfo: UpdateInfo | null
+  updateChecking: boolean
   onCheckUpdate: () => void
   onOpenUpdate: () => void
   onClose: () => void
@@ -19,8 +20,24 @@ type StoreStats = {
   folders: number
 }
 
-export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, onCheckUpdate, onOpenUpdate, onClose }: SettingsPageProps) {
+export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, updateChecking, onCheckUpdate, onOpenUpdate, onClose }: SettingsPageProps) {
   const [stats, setStats] = useState<StoreStats | null>(null)
+
+  // Test backend reachability (in-app update endpoint) with a fresh access token
+  const [backendReach, setBackendReach] = useState<'checking' | 'reachable' | 'unreachable'>('checking')
+  useEffect(() => {
+    let cancelled = false
+    const test = async () => {
+      try {
+        await ipc.auth.getAccessToken()
+        if (!cancelled) setBackendReach('reachable')
+      } catch {
+        if (!cancelled) setBackendReach('unreachable')
+      }
+    }
+    test()
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     ipc.local.stats().then((s: any) => setStats(s || null))
@@ -85,19 +102,29 @@ export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, onC
               )}
             </div>
             <div className="settings-row-hint">
-              {updateInfo?.available
-                ? (updateInfo.notes?.length ?? 0) > 0
-                  ? updateInfo.notes!.join(' · ')
-                  : 'Versi baru tersedia.'
-                : updateInfo?.error ? `Gagal cek update (${updateInfo.error})` : 'Aplikasi sudah versi terbaru.'}
+              {updateChecking ? 'Mengecek update…' : (
+                updateInfo?.available
+                  ? (updateInfo.notes?.length ?? 0) > 0
+                    ? updateInfo.notes!.join(' · ')
+                    : 'Versi baru tersedia.'
+                  : updateInfo?.error
+                    ? `Gagal cek update (${updateInfo.error})`
+                    : 'Aplikasi sudah versi terbaru.'
+              )}
             </div>
           </div>
           <div className="settings-row-actions">
             {updateInfo?.available && updateInfo?.url && (
               <button className="btn" onClick={onOpenUpdate}>Buka halaman</button>
             )}
-            <button className="btn" onClick={onCheckUpdate}>Cek update</button>
+            <button className="btn" onClick={onCheckUpdate} disabled={updateChecking}>
+              {updateChecking ? 'Mengecek…' : 'Cek update'}
+            </button>
           </div>
+        </div>
+        {/* Backend reachability — in-app update needs the backend up */}
+        <div className="settings-row-hint" style={{ marginTop: 4 }}>
+          {backendReach === 'checking' ? 'Menghubungi server…' : backendReach === 'reachable' ? '✓ Backend dapat diakses (in-app update siap)' : '✗ Backend tidak terjangkau — cek update mungkin gagal'}
         </div>
       </section>
 

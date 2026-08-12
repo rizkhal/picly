@@ -38,8 +38,9 @@ export function defaultModelsDir(): string {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const electron = require('electron')
     if (electron?.app?.isPackaged) {
-      // @ts-expect-error resourcesPath is provided by Electron, not @types/node
-      return path.join(process.resourcesPath, 'models')
+      // resourcesPath is Electron-only — cast: @types/node doesn't know it,
+      // the editor LSP (electron types) does.
+      return path.join((process as any).resourcesPath, 'models')
     }
   } catch {
     // Not running inside Electron (CLI tests) — fall through.

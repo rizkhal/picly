@@ -13,6 +13,7 @@ export function useAuth() {
   // Update state (Fase 3: in-app update banner)
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
   const [updateDismissed, setUpdateDismissed] = useState(false)
+  const [updateChecking, setUpdateChecking] = useState(false)
 
   // Load persisted auth status on mount
   useEffect(() => {
@@ -52,10 +53,15 @@ export function useAuth() {
 
   // Fase 3: check for an update on startup (backend serves the manifest)
   const checkForUpdate = useCallback(async (silent = false) => {
-    const res = await ipc.update.check()
-    setUpdateInfo(res)
-    setUpdateDismissed(false)
-    if (!silent && res?.error) console.warn('Update check failed:', res.error)
+    setUpdateChecking(true)
+    try {
+      const res = await ipc.update.check()
+      setUpdateInfo(res)
+      setUpdateDismissed(false)
+      if (!silent && res?.error) console.warn('Update check failed:', res.error)
+    } finally {
+      setUpdateChecking(false)
+    }
   }, [])
 
   const openUpdatePage = useCallback(async () => {
@@ -78,6 +84,7 @@ export function useAuth() {
     updateInfo,
     updateDismissed,
     setUpdateDismissed,
+    updateChecking,
     submitAuth,
     handleLogout,
     checkForUpdate,
