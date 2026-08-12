@@ -27,7 +27,10 @@ export interface LocalServices {
 export function createLocalServices(config: LocalConfig): LocalServices {
   mkdirSync(path.dirname(config.dbPath), { recursive: true })
   mkdirSync(config.thumbDir, { recursive: true })
-  const store = PhotoStore.open(config.dbPath)
+  const store = PhotoStore.open(config.dbPath, { thumbDir: config.thumbDir })
+  // One-time housekeeping on startup: drop abandoned persons + orphan thumb
+  // files (leftovers from earlier deletes that predate thumb cleanup).
+  store.cleanupOrphans()
   let analysisPromise: Promise<FaceAnalysis> | null = null
   return {
     config,

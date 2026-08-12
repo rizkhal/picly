@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
+import { readdirSync, unlinkSync } from 'node:fs'
+import path from 'node:path'
 import { SCHEMA } from './schema'
 import { blobToEmbedding, cosine, embeddingToBlob } from './vec'
 
@@ -22,6 +24,12 @@ export interface StoreOptions {
    * (0.3 over-merges — a 528-photo blob; 0.6 over-splits small clusters).
    */
   clusterThreshold?: number
+  /**
+   * Thumbnail/crop directory (same one the scanner writes to). When set,
+   * deletePhoto/deleteFolder/cleanupOrphans also unlink the matching thumb
+   * files from disk — otherwise deleted rows leave orphan files behind.
+   */
+  thumbDir?: string
 }
 
 export interface AddPhotoInput {
@@ -84,10 +92,12 @@ export class PhotoStore {
   private personCentroids: PersonCentroidRow[] | null = null
   private personSeq = 0
   private readonly clusterThreshold: number
+  private readonly thumbDir: string | null
 
   private constructor(db: Database.Database, options: StoreOptions = {}) {
     this.db = db
     this.clusterThreshold = options.clusterThreshold ?? CLUSTER_MATCH_THRESHOLD
+    this.thumbDir = options.thumbDir ?? null
     this.personSeq = (this.db.prepare('SELECT COUNT(*) AS n FROM persons').get() as { n: number }).n
   }
 
@@ -137,8 +147,23 @@ export class PhotoStore {
   deleteFolder(hostPath: string): number {
     const prefix = hostPath.replace(/\/+$/, '') + '/'
     const del = this.db.transaction(() => {
+      // Collect thumb + face-crop files BEFORE deleting rows so we can unlink
+      // them after (faces cascade-delete with the photos).
+      const thumbs = (this.db.prepare(`SELECT thumb_path FROM photos WHERE path LIKE ?`).all(prefix + '%') as Array<{ thumb_path: string | null }>)
+        .map((r) => r.thumb_path)
+        .filter((t): t is string => !!t)
+      const faceIds = (this.db
+        .prepare(
+          `SELECT f.id AS faceId FROM faces f JOIN photos p ON p.id = f.photo_id WHERE p.path LIKE ?`,
+        )
+        .all(prefix + '%') as Array<{ faceId: string }>)
+        .map((r) => r.faceId)
       const info = this.db.prepare(`DELETE FROM photos WHERE path LIKE ?`).run(prefix + '%')
       this.db.prepare(`DELETE FROM folders WHERE host_path = ?`).run(hostPath)
+      for (const t of thumbs) this.unlinkThumb(t)
+      if (this.thumbDir) {
+        for (const faceId of faceIds) this.unlinkThumb(path.join(this.thumbDir, `${faceId}.jpg`))
+      }
       return info.changes
     })
     const n = del()
@@ -177,8 +202,69 @@ export class PhotoStore {
   }
 
   deletePhoto(photoId: string): void {
+    const row = this.db.prepare(`SELECT thumb_path AS thumbPath FROM photos WHERE id = ?`).get(photoId) as { thumbPath: string | null } | undefined
+    // Also unlink this photo's face crop files (named <faceId>.jpg).
+    const faceIds = (this.db.prepare(`SELECT id FROM faces WHERE photo_id = ?`).all(photoId) as Array<{ id: string }>).map((r) => r.id)
     this.db.prepare(`DELETE FROM photos WHERE id = ?`).run(photoId)
+    if (row?.thumbPath) this.unlinkThumb(row.thumbPath)
+    if (this.thumbDir) {
+      for (const faceId of faceIds) this.unlinkThumb(path.join(this.thumbDir, `${faceId}.jpg`))
+    }
     this.invalidate()
+  }
+
+  /**
+   * Remove orphaned state left behind by deletes/edits:
+   *  - person rows with no faces (abandoned after photos/faces are deleted)
+   *  - thumbnail/crop files in thumbDir that no longer match any photo or face
+   * Returns how many thumb files were removed.
+   */
+  cleanupOrphans(): number {
+    // Persons with zero faces are invisible to the UI already, but they
+    // accumulate — delete them.
+    this.db
+      .prepare(
+        `DELETE FROM persons WHERE id NOT IN (SELECT DISTINCT person_id FROM faces WHERE person_id IS NOT NULL)`,
+      )
+      .run()
+    this.invalidate()
+
+    if (!this.thumbDir) return 0
+    let removed = 0
+    const validIds = new Set<string>()
+    for (const r of this.db.prepare(`SELECT thumb_path FROM photos WHERE thumb_path IS NOT NULL`).all() as Array<{ thumb_path: string }>) {
+      validIds.add(path.basename(r.thumb_path).replace(/\.jpg$/, ''))
+    }
+    for (const r of this.db.prepare(`SELECT id FROM faces`).all() as Array<{ id: string }>) {
+      validIds.add(r.id)
+    }
+    let entries
+    try {
+      entries = readdirSync(this.thumbDir)
+    } catch {
+      return 0 // dir missing — nothing to clean
+    }
+    for (const name of entries) {
+      if (!/^[0-9a-f-]{36}\.jpg$/.test(name)) continue // only our UUID-named files
+      const id = name.replace(/\.jpg$/, '')
+      if (validIds.has(id)) continue
+      try {
+        unlinkSync(path.join(this.thumbDir, name))
+        removed += 1
+      } catch {
+        // best-effort
+      }
+    }
+    return removed
+  }
+
+  /** Best-effort unlink of a stored thumb path (photo thumb or face crop). */
+  private unlinkThumb(thumbPath: string): void {
+    try {
+      unlinkSync(thumbPath)
+    } catch {
+      // already gone / not on disk — fine
+    }
   }
 
   /** Indexed photos under a folder (for the rescan removal diff). */
