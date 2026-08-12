@@ -4,6 +4,14 @@
 # backend). This service exists solely to serve the in-app update manifest
 # (GET /app/update) that the desktop checks for new releases.
 services:
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"
+
   backend:
     build:
       context: .
