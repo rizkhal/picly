@@ -23,22 +23,6 @@ type StoreStats = {
 export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, updateChecking, onCheckUpdate, onOpenUpdate, onClose }: SettingsPageProps) {
   const [stats, setStats] = useState<StoreStats | null>(null)
 
-  // Test backend reachability (in-app update endpoint) with a fresh access token
-  const [backendReach, setBackendReach] = useState<'checking' | 'reachable' | 'unreachable'>('checking')
-  useEffect(() => {
-    let cancelled = false
-    const test = async () => {
-      try {
-        await ipc.auth.getAccessToken()
-        if (!cancelled) setBackendReach('reachable')
-      } catch {
-        if (!cancelled) setBackendReach('unreachable')
-      }
-    }
-    test()
-    return () => { cancelled = true }
-  }, [])
-
   useEffect(() => {
     ipc.local.stats().then((s: any) => setStats(s || null))
   }, [])
@@ -121,10 +105,6 @@ export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, upd
               {updateChecking ? 'Mengecek…' : 'Cek update'}
             </button>
           </div>
-        </div>
-        {/* Backend reachability — in-app update needs the backend up */}
-        <div className="settings-row-hint" style={{ marginTop: 4 }}>
-          {backendReach === 'checking' ? 'Menghubungi server…' : backendReach === 'reachable' ? '✓ Backend dapat diakses (in-app update siap)' : '✗ Backend tidak terjangkau — cek update mungkin gagal'}
         </div>
       </section>
 
