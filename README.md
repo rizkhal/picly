@@ -19,8 +19,27 @@ npm install          # postinstall compiles better-sqlite3 for host + Electron A
 npm run electron:dev # compile local services + run the app (needs a GUI session)
 ```
 
-> The ML models are read from `~/.insightface/models` (override with `PICLY_MODELS_DIR`).
+> **Dev** reads the ML models from `~/.insightface/models` (override with `PICLY_MODELS_DIR`).
+> **Packaged** builds bundle the models inside the app (`Contents/Resources/models`) via
+> `electron:build` — a fresh install needs no manual model setup.
 > No Python, Docker, or backend is required for scan/search/browse — everything is local.
+
+## Build & package (macOS)
+
+```bash
+cd desktop
+npm run electron:build   # fetches ONNX models if missing, then electron-builder → dist/Picly-*.dmg
+```
+
+- `scripts/fetch-models.mjs` downloads `buffalo_l` from GitHub releases and extracts
+  **only** the two models Picly loads — `det_10g.onnx` (~17 MB) + `w600k_r50.onnx`
+  (~174 MB) — into `desktop/models/buffalo_l/` (gitignored, never committed).
+- electron-builder copies them via `extraResources` into `Contents/Resources/models`;
+  the packaged app resolves them automatically (`config.ts` → `process.resourcesPath`).
+- CI (`.github/workflows/build.yml`) runs the same fetch step before building, so the
+  repo stays free of the ~190 MB model files.
+- Target saat ini: **macOS arm64 (Apple Silicon)** — DMG. Windows/Linux menyusul.
+- DevTools dinonaktifkan di packaged app (`devTools: !app.isPackaged`); dev tetap bisa buka.
 
 ## Backend (auth + in-app update)
 
@@ -50,16 +69,21 @@ Or via Docker: `docker compose up -d --build` (binds `127.0.0.1:8000`).
 
 ### Desktop auth (account is optional — local features work without it)
 
-The desktop lets you register/login from the sidebar footer; tokens are stored via
-**Electron `safeStorage`** (OS-level encryption: Keychain/DPAPI), and the renderer
-never sees raw tokens (only status + email). Account is for **entitlement + update** —
-photos stay 100% local to the device and are never scoped or synced per account.
+The desktop lets you register/login from the **Settings page** (sidebar footer gear
+button). When logged in, the sidebar footer shows your **email** instead of the
+"Settings" label. Tokens are stored via **Electron `safeStorage`** (OS-level
+encryption: Keychain/DPAPI), and the renderer never sees raw tokens (only status +
+email). Account is for **entitlement + update** — photos stay 100% local to the
+device and are never scoped or synced per account.
 
 ### In-app update (v1: banner → browser)
 
 On startup the renderer checks `GET /app/update` (public) via `app:check-update`;
 if a newer version exists it shows a dismissible **update banner** with an **Update**
 button that opens the release page in the system browser (`app:open-update`).
+The **Settings → Update** section also exposes a **Cek update** button with a
+loading state — it shows "Mengecek update…" while the request runs, then a clear
+result message (ada update / sudah versi terbaru / gagal bila backend unreachable).
 Auto-download/install (electron-updater) is a future phase — v1 is banner + open
 browser to keep the update path simple and safe.
 
@@ -67,7 +91,7 @@ browser to keep the update path simple and safe.
 
 | Var | Default | Description |
 |---|---|---|
-| `PICLY_MODELS_DIR` | `~/.insightface/models` | ONNX model dir (`buffalo_l`) |
+| `PICLY_MODELS_DIR` | `~/.insightface/models` | ONNX model dir (`buffalo_l`) — dev; packaged app uses bundled `Contents/Resources/models` |
 | `JWT_SECRET` | (ephemeral) | JWT signing secret — **required in production** (`openssl rand -base64 32`) |
 | `DB_PATH` | `/data/picly.db` | Backend SQLite DB path |
 | `PORT` (backend) | `8000` | Backend listen port |
@@ -91,7 +115,8 @@ cd desktop && bun run verify:pipeline   # IoU ~0.999, cosSim ~0.9999, umeyama M 
   provenance — the desktop itself runs fully on ONNX and never needs Python):
   run `docs/ml-parity/gen_fixtures.py` in any insightface 0.7.3 + onnxruntime
   env (see script header for usage), then write the output to `docs/ml-parity/golden.json`.
-- Models are read from `~/.insightface/models` (override with `PICLY_MODELS_DIR`).
+- Models are read from `~/.insightface/models` in dev (override with `PICLY_MODELS_DIR`);
+  packaged builds bundle them under `Contents/Resources/models` (see Build & package).
 - Pipeline is config-driven (`desktop/src/main/ml/config.ts`) — switching to the
   lighter `buffalo_s` pack later = new model paths + regenerate fixtures, no code change.
 
@@ -156,4 +181,5 @@ one binary.)
 - Storage is fully local: SQLite under `desktop/data/` (gitignored) — thumbnails cached as 300px JPEG
 - Face clustering: centroid-based with running average (threshold 0.6), done at scan time
 - Drive handling is **desktop app responsibility**, not backend
-- Models live in `~/.insightface/models/buffalo_l/` (det_10g.onnx + w600k_r50.onnx) — required for scan/search
+- Models: **dev** reads `~/.insightface/models/buffalo_l/` (override `PICLY_MODELS_DIR`);
+  **packaged** apps ship them inside `Contents/Resources/models` — no manual setup needed
