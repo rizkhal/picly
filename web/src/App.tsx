@@ -1,4 +1,4 @@
-import { Aperture, MagnifyingGlass, FolderOpen, ShieldCheck, Cpu, HardDrives, ArrowRight, GithubLogo, DownloadSimple } from '@phosphor-icons/react'
+import { Aperture, MagnifyingGlass, FolderOpen, ShieldCheck, Cpu, HardDrives, ArrowRight, GithubLogo, DownloadSimple, ShieldStar } from '@phosphor-icons/react'
 
 function Navbar() {
   return (
@@ -13,9 +13,9 @@ function Navbar() {
           <a href="#how">How it works</a>
           <a href="#privacy">Privacy</a>
         </nav>
-        <a href="#download" className="btn btn-primary nav-cta">
-          <DownloadSimple size={16} weight="bold" />
-          Download
+        <a href="https://github.com/rizkhal/picly" className="btn btn-ghost nav-cta" target="_blank" rel="noreferrer">
+          <GithubLogo size={16} weight="fill" />
+          GitHub
         </a>
       </div>
     </header>
@@ -27,7 +27,7 @@ function Hero() {
     <section className="hero">
       <div className="hero-inner">
         <div className="hero-badge">
-          <span className="hero-badge-dot" />
+          <ShieldStar size={14} weight="fill" />
           macOS · Apple Silicon
         </div>
         <h1 className="hero-title">
@@ -160,29 +160,32 @@ function HowItWorks() {
 }
 
 function Privacy() {
+  const points = [
+    { icon: ShieldCheck, text: 'No cloud upload, ever' },
+    { icon: ShieldCheck, text: 'Face embeddings stay in a local SQLite DB' },
+    { icon: ShieldCheck, text: 'No account required to use core features' },
+    { icon: ShieldCheck, text: 'The only network call is an optional update check' },
+  ]
   return (
-    <section id="privacy" className="section">
-      <div className="section-inner privacy-inner">
-        <div className="privacy-visual">
-          <div className="privacy-lock">
-            <ShieldCheck size={44} weight="fill" />
-          </div>
-          <div className="privacy-pulse" />
-        </div>
-        <div className="privacy-text">
+    <section id="privacy" className="section section-privacy">
+      <div className="section-inner privacy-split">
+        <div className="privacy-copy">
           <h2 className="section-title">Your photos never leave your device</h2>
           <p className="section-sub">
             Picly is a desktop app built around one principle: your photos belong to you.
-            The ML models run locally, the database lives locally, and the app works
-            fully offline.
+            The ML models run locally, the database lives locally, and the app works fully offline.
           </p>
-          <ul className="privacy-list">
-            <li><ShieldCheck size={16} weight="bold" /> No cloud upload, ever</li>
-            <li><ShieldCheck size={16} weight="bold" /> Face embeddings stay in a local SQLite DB</li>
-            <li><ShieldCheck size={16} weight="bold" /> No account required to use core features</li>
-            <li><ShieldCheck size={16} weight="bold" /> The only network call is an optional update check</li>
-          </ul>
         </div>
+        <ul className="privacy-list">
+          {points.map((p) => (
+            <li key={p.text} className="privacy-item">
+              <div className="privacy-item-icon">
+                <p.icon size={18} weight="bold" />
+              </div>
+              <span>{p.text}</span>
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   )
@@ -209,21 +212,16 @@ function Footer() {
     <footer className="footer">
       <div className="footer-inner">
         <div className="footer-brand">
-          <Aperture size={20} weight="fill" className="brand-icon" />
+          <Aperture size={18} weight="fill" className="brand-icon" />
           <span>Picly</span>
         </div>
-        <div className="footer-links">
-          <a href="#features">Features</a>
-          <a href="#how">How it works</a>
-          <a href="#privacy">Privacy</a>
+        <div className="footer-meta">
+          <span>© {new Date().getFullYear()} Picly</span>
+          <a href="https://github.com/rizkhal/picly" target="_blank" rel="noreferrer">
+            <GithubLogo size={16} weight="fill" />
+            GitHub
+          </a>
         </div>
-        <a href="https://github.com/rizkhal/picly" className="footer-github" target="_blank" rel="noreferrer">
-          <GithubLogo size={18} weight="fill" />
-          <span>GitHub</span>
-        </a>
-      </div>
-      <div className="footer-bottom">
-        <span>© {new Date().getFullYear()} Picly. Local-first photo management.</span>
       </div>
     </footer>
   )
