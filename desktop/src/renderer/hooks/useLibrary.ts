@@ -1,31 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Disk, Folder, Person, PersonPreview, Photo } from '../types'
+import type { Folder, Person, PersonPreview, Photo } from '../types'
 import * as ipc from '../lib/electron'
 
 export function useLibrary() {
   const [persons, setPersons] = useState<Person[]>([])
   const [personPreviews, setPersonPreviews] = useState<PersonPreview[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
-  const [disks, setDisks] = useState<Disk[]>([])
   const [photos, setPhotos] = useState<Photo[]>([])
+  const [noFaceCount, setNoFaceCount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [driveStatus, setDriveStatus] = useState('Checking...')
 
   // Track the current person/folder scope in a ref so the scan-completion
   // refresh always reloads what the user is actually looking at, not what was
   // selected when the scan started.
-  const scopeRef = useRef<{ person: string | null; folder: string | null }>({ person: null, folder: null })
-
-  // Load disks — real host mounts via Electron (no backend)
-  const loadDisks = useCallback(async () => {
-    const disks = await ipc.listDisks()
-    if (disks.length > 0) setDisks(disks)
-  }, [])
+  const scopeRef = useRef<{ person: string | null; folder: string | null; noFaces: boolean }>({ person: null, folder: null, noFaces: false })
 
   // Load folders added via '+ Add folder' (local store)
   const loadFolders = useCallback(async () => {
     const rows = await ipc.local.listFolders()
     setFolders(rows)
+  }, [])
+
+  // Load no-face count (sidebar badge) — refresh after scans/deletes.
+  const loadNoFaceCount = useCallback(async () => {
+    const n = await ipc.local.countNoFacePhotos()
+    setNoFaceCount(n)
   }, [])
 
   // Load persons (local store) + face crop previews (one representative face each)
@@ -51,6 +51,19 @@ export function useLibrary() {
       setPhotos(rows)
     } catch (e) {
       console.error('Failed to load photos', e)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // Load photos with no detected faces (the "No faces" scope).
+  const loadNoFacePhotos = useCallback(async () => {
+    setLoading(true)
+    try {
+      const rows = await ipc.local.listNoFacePhotos()
+      setPhotos(rows)
+    } catch (e) {
+      console.error('Failed to load no-face photos', e)
     } finally {
       setLoading(false)
     }
@@ -104,17 +117,18 @@ export function useLibrary() {
     persons,
     personPreviews,
     folders,
-    disks,
     photos,
     setPhotos,
+    noFaceCount,
     loading,
     setLoading,
     driveStatus,
     scopeRef,
-    loadDisks,
     loadFolders,
     loadPersons,
     loadPhotos,
+    loadNoFacePhotos,
+    loadNoFaceCount,
     searchFace,
   }
 }

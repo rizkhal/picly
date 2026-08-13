@@ -4,7 +4,6 @@ contextBridge.exposeInMainWorld('electron', {
   // Legacy API-based IPC (Python backend)
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   getApiBase: () => ipcRenderer.invoke('get-api-base'),
-  listDisks: () => ipcRenderer.invoke('list-disks'),
 
   // Electron 32+: File.path was removed — resolve the path via webUtils
   // (preload is the only place that can safely touch the file object).
@@ -33,6 +32,8 @@ contextBridge.exposeInMainWorld('electron', {
     listPhotos: (folderPath) => ipcRenderer.invoke('local:list-photos', folderPath),
     listPersonPhotos: (personId) => ipcRenderer.invoke('local:list-person-photos', personId),
     listPersonPreviews: (ids) => ipcRenderer.invoke('local:list-person-previews', ids),
+    listNoFacePhotos: () => ipcRenderer.invoke('local:list-no-face-photos'),
+    countNoFacePhotos: () => ipcRenderer.invoke('local:count-no-face-photos'),
     photoFaces: (photoId) => ipcRenderer.invoke('local:photo-faces', photoId),
     renamePerson: (personId, name) => ipcRenderer.invoke('local:rename-person', personId, name),
     deleteFolder: (hostPath) => ipcRenderer.invoke('local:delete-folder', hostPath),

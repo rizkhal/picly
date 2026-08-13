@@ -346,6 +346,29 @@ export class PhotoStore {
       .all(personId, limit) as Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null }>
   }
 
+  /** Photos that were scanned but have NO detected faces (landscape, docs, blank…). */
+  listPhotosNoFaces(limit = 500): Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null }> {
+    return this.db
+      .prepare(
+        `SELECT p.id AS photoId, p.path, p.thumb_path AS thumbPath, p.width, p.height
+         FROM photos p
+         LEFT JOIN faces f ON f.photo_id = p.id
+         WHERE f.id IS NULL
+         ORDER BY p.created_at DESC LIMIT ?`,
+      )
+      .all(limit) as Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null }>
+  }
+
+  /** Count of photos with no detected faces (for the sidebar badge). */
+  countPhotosNoFaces(): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM photos p LEFT JOIN faces f ON f.photo_id = p.id WHERE f.id IS NULL`,
+      )
+      .get() as { n: number }
+    return row.n
+  }
+
   /**
    * Face preview data for each person: one representative face + its photo path.
    * Uses the MEDIAN rowid face (middle of the cluster's insertion order) so the

@@ -1,5 +1,5 @@
-import { Folder, Trash, X, CaretRight, Pause, Play, GearSix, Aperture, ArrowClockwise } from '@phosphor-icons/react'
-import type { Disk, Folder as FolderT, PersonPreview, ScanProgress } from '../types'
+import { Folder, Trash, X, Pause, Play, GearSix, Aperture, ArrowClockwise } from '@phosphor-icons/react'
+import type { Folder as FolderT, PersonPreview, ScanProgress } from '../types'
 
 type ScanRowProps = {
   scan: ScanProgress
@@ -100,11 +100,9 @@ type SidebarProps = {
   onRescanFolder: (folder: FolderT) => void
   scanning: boolean
   onAddFolder: () => void
-  disks: Disk[]
-  selectedDisk: string | null
-  onDiskClick: (diskPath: string) => void
-  diskCollapsed: boolean
-  onToggleDisk: () => void
+  noFaceCount: number
+  noFacesSelected: boolean
+  onNoFacesClick: () => void
   driveStatus: string
   personCount: number
   onOpenSettings: () => void
@@ -117,7 +115,7 @@ export function Sidebar(props: SidebarProps) {
     activeScans, dismissedScans, onPause, onResume, onRemove, onDismiss,
     folders, selectedFolder, onFolderClick, onRemoveFolder,
     onRescanFolder, scanning, onAddFolder,
-    disks, selectedDisk, onDiskClick, diskCollapsed, onToggleDisk,
+    noFaceCount, noFacesSelected, onNoFacesClick,
     driveStatus, personCount, onOpenSettings, authEmail,
   } = props
   const visibleScans = activeScans.filter((s) => !dismissedScans.has(s.scan_id))
@@ -194,36 +192,21 @@ export function Sidebar(props: SidebarProps) {
         </div>
       </div>
 
-      {/* Bottom: pinned disk list + API status */}
+      {/* Bottom: pinned "No faces" scope + API status */}
       <div className="sidebar-bottom">
-        {disks.length > 0 && (
-          <div className="sidebar-section">
-            <button
-              className="sidebar-section-title sidebar-collapse-btn"
-              onClick={onToggleDisk}
-            >
-              <CaretRight size={12} className={`section-caret ${diskCollapsed ? '' : 'open'}`} />
-              Disk
-            </button>
-            {!diskCollapsed && (
-              <div className="nav-list">
-                {disks.map((disk) => (
-                  <div
-                    key={disk.path}
-                    className={`nav-item ${selectedDisk === disk.path ? 'active' : ''}`}
-                    onClick={() => onDiskClick(disk.path)}
-                  >
-                    <Folder size={16} className="nav-icon" />
-                    <div className="disk-info">
-                      <div className="disk-name">{disk.name}</div>
-                      <div className="disk-space">{disk.free_gb ?? ''}{disk.free_gb !== undefined ? ' GB free' : ''}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+        <div className="sidebar-section">
+          <div
+            className={`nav-item no-faces-item ${noFacesSelected ? 'active' : ''}`}
+            onClick={onNoFacesClick}
+            title="Foto yang ter-index tapi tidak ada wajah terdeteksi"
+          >
+            <Aperture size={16} className="nav-icon" />
+            <div className="disk-info">
+              <div className="disk-name">No faces</div>
+              <div className="disk-space">{noFaceCount} photos</div>
+            </div>
           </div>
-        )}
+        </div>
         <div className="sidebar-footer">
           <div className="sidebar-footer-row">
             <div className="sidebar-footer-text">

@@ -15,19 +15,20 @@ export default function App() {
   // Library: disks / folders / persons / photos
   const library = useLibrary()
   const {
-    persons, personPreviews, folders, disks, photos, setPhotos,
-    loading, setLoading, driveStatus, scopeRef,
-    loadDisks, loadFolders, loadPersons, loadPhotos, searchFace,
+    persons, personPreviews, folders, photos, setPhotos,
+    loading, setLoading, driveStatus, scopeRef, noFaceCount,
+    loadFolders, loadPersons, loadPhotos, loadNoFacePhotos, loadNoFaceCount, searchFace,
   } = library
 
   // Scan engine: 3-state (pause/resume/hapus) + progress subscription
   const refreshAfterScan = useCallback(() => {
     loadPersons()
     loadFolders()
+    loadNoFaceCount()
     setTimeout(() => {
       loadPhotos(scopeRef.current.person, null, scopeRef.current.folder)
     }, 300)
-  }, [loadPersons, loadFolders, loadPhotos, scopeRef])
+  }, [loadPersons, loadFolders, loadNoFaceCount, loadPhotos, scopeRef])
   const scans = useScans(refreshAfterScan)
   const {
     activeScans, dismissedScans, scanning, scanFolder,
@@ -44,8 +45,8 @@ export default function App() {
 
   // Selection state
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null)
-  const [selectedDisk, setSelectedDisk] = useState<string | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null)
+  const [noFacesSelected, setNoFacesSelected] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFacesDetected, setSearchFacesDetected] = useState<number | null>(null)
   const [searchMatchedPersons, setSearchMatchedPersons] = useState<string[]>([])
@@ -54,61 +55,41 @@ export default function App() {
   const [photoIndex, setPhotoIndex] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  // Disk section collapse — persisted so the choice survives restarts
-  const [diskCollapsed, setDiskCollapsed] = useState<boolean>(() => {
-    try { return localStorage.getItem('picly:disk-collapsed') === '1' } catch { return false }
-  })
-
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Track the current person/folder scope for scan-completion refresh
+  // Track the current person/folder/no-faces scope for scan-completion refresh
   useEffect(() => {
-    scopeRef.current = { person: selectedPerson, folder: selectedFolder?.container_path || null }
-  }, [selectedPerson, selectedFolder, scopeRef])
+    scopeRef.current = { person: selectedPerson, folder: selectedFolder?.container_path || null, noFaces: noFacesSelected }
+  }, [selectedPerson, selectedFolder, noFacesSelected, scopeRef])
 
   // Load everything on mount
   useEffect(() => {
-    loadDisks()
     loadPersons()
     loadFolders()
+    loadNoFaceCount()
     checkForUpdate(true)
     recoverScans()
-  }, [loadDisks, loadPersons, loadFolders, checkForUpdate, recoverScans])
+  }, [loadPersons, loadFolders, loadNoFaceCount, checkForUpdate, recoverScans])
 
   // Re-scan mounts when the window regains focus (drives can be plugged/unplugged)
   useEffect(() => {
-    const onFocus = () => { loadDisks(); loadFolders(); recoverScans() }
+    const onFocus = () => { loadFolders(); loadNoFaceCount(); recoverScans() }
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
-  }, [loadDisks, loadFolders, recoverScans])
+  }, [loadFolders, loadNoFaceCount, recoverScans])
 
   // Handle person selection
   const handlePersonClick = (personId: string) => {
     if (selectedPerson === personId) {
       setSelectedPerson(null)
-      setSelectedDisk(null)
       setSelectedFolder(null)
+      setNoFacesSelected(false)
       setPhotos([])
     } else {
       setSelectedPerson(personId)
-      setSelectedDisk(null)
       setSelectedFolder(null)
+      setNoFacesSelected(false)
       loadPhotos(personId)
-    }
-  }
-
-  // Handle disk selection — shows all photos on this disk in the main panel
-  const handleDiskClick = (diskPath: string) => {
-    if (selectedDisk === diskPath) {
-      setSelectedDisk(null)
-      setSelectedPerson(null)
-      setSelectedFolder(null)
-      setPhotos([])
-    } else {
-      setSelectedDisk(diskPath)
-      setSelectedPerson(null)
-      setSelectedFolder(null)
-      loadPhotos(null, diskPath)
     }
   }
 
@@ -117,14 +98,28 @@ export default function App() {
     if (selectedFolder?.folder_id === folder.folder_id) {
       setSelectedFolder(null)
       setSelectedPerson(null)
-      setSelectedDisk(null)
-      setSelectedFolder(null)
+      setNoFacesSelected(false)
       setPhotos([])
     } else {
       setSelectedFolder(folder)
       setSelectedPerson(null)
-      setSelectedDisk(null)
+      setNoFacesSelected(false)
       loadPhotos(null, null, folder.container_path)
+    }
+  }
+
+  // Handle "No faces" selection — photos with no detected faces
+  const handleNoFacesClick = () => {
+    if (noFacesSelected) {
+      setNoFacesSelected(false)
+      setSelectedFolder(null)
+      setSelectedPerson(null)
+      setPhotos([])
+    } else {
+      setNoFacesSelected(true)
+      setSelectedFolder(null)
+      setSelectedPerson(null)
+      loadNoFacePhotos()
     }
   }
 
@@ -139,8 +134,8 @@ export default function App() {
       setSearchFacesDetected(res.facesDetected)
       setSearchMatchedPersons(res.matchedPersons)
       setSelectedPerson(null)
-      setSelectedDisk(null)
       setSelectedFolder(null)
+      setNoFacesSelected(false)
     } catch (err) {
       console.error('Search failed', err)
       setScanError('Search gagal — coba lagi.')
@@ -173,6 +168,7 @@ export default function App() {
     }
     await loadFolders()
     await loadPersons()
+    loadNoFaceCount()
     loadPhotos(scopeRef.current.person, null, scopeRef.current.folder)
   }
 
@@ -195,6 +191,7 @@ export default function App() {
     loadPhotos(selectedPerson, null, selectedFolder?.container_path || null)
     loadPersons()
     loadFolders()
+    loadNoFaceCount()
   }
 
   // Navigate the modal to another photo in the current scope (keyboard/rail)
@@ -221,17 +218,9 @@ export default function App() {
         onRescanFolder={(folder) => rescanFolder(folder.host_path)}
         scanning={scanning}
         onAddFolder={scanFolder}
-        disks={disks}
-        selectedDisk={selectedDisk}
-        onDiskClick={handleDiskClick}
-        diskCollapsed={diskCollapsed}
-        onToggleDisk={() => {
-          setDiskCollapsed((c) => {
-            const next = !c
-            try { localStorage.setItem('picly:disk-collapsed', next ? '1' : '0') } catch {}
-            return next
-          })
-        }}
+        noFaceCount={noFaceCount}
+        noFacesSelected={noFacesSelected}
+        onNoFacesClick={handleNoFacesClick}
         driveStatus={driveStatus}
         personCount={persons.length}
         authEmail={authStatus.loggedIn ? authStatus.email : null}
@@ -280,7 +269,7 @@ export default function App() {
                     if (q) {
                       setPhotos(prev => prev.filter(p => p.path.toLowerCase().includes(q)))
                     } else {
-                      loadPhotos(selectedPerson || null, selectedDisk || null, selectedFolder?.container_path || null)
+                      loadPhotos(selectedPerson || null, null, selectedFolder?.container_path || null)
                     }
                   }}
                 />

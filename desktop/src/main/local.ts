@@ -147,6 +147,19 @@ export function listPersonPhotos(services: LocalServices, personId: string, limi
   }))
 }
 
+/** Photos with no detected faces (landscape/docs/blank), thumbnails mapped. */
+export function listPhotosNoFaces(services: LocalServices, limit = 500): unknown[] {
+  return services.store.listPhotosNoFaces(limit).map((p) => ({
+    ...p,
+    thumbUrl: p.thumbPath ? `picly://thumb/${path.basename(p.thumbPath)}` : null,
+  }))
+}
+
+/** Count of photos with no detected faces (sidebar badge). */
+export function countPhotosNoFaces(services: LocalServices): number {
+  return services.store.countPhotosNoFaces()
+}
+
 /** Face crop previews for a set of persons, mapped to picly://face URLs. */
 export function listPersonPreviews(services: LocalServices, ids: string[]): unknown[] {
   return services.store.listPersonPreviews(ids).map((p) => ({

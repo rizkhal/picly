@@ -141,36 +141,6 @@ app.on('activate', () => {
 const { execFileSync } = require('child_process');
 const { pathToFileURL } = require('url');
 
-// Enumerate real host-mounted volumes via df. Returns [{name, path, free_gb, total_gb}]
-function listHostDisks() {
-  try {
-    const out = execFileSync('df', ['-kP'], { encoding: 'utf8', timeout: 5000 });
-    const lines = out.split('\n').slice(1);
-    const disks = [];
-    const seen = new Set();
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const parts = line.trim().split(/\s+/);
-      if (parts.length < 6) continue;
-      const [fs, blocks, used, avail, cap, mount] = parts;
-      // Only show real mount points, not synthetic/system ones
-      if (!mount.startsWith('/') || mount.includes('/System/Volumes') || mount === '/private/var') continue;
-      if (mount === '/' || mount.startsWith('/Volumes/')) {
-        if (seen.has(mount)) continue;
-        seen.add(mount);
-        const freeGb = Math.round(parseInt(avail) * 1024 / 1e9);
-        const totalGb = Math.round(parseInt(blocks) * 1024 / 1e9);
-        const name = mount === '/' ? 'Macintosh HD' : mount.split('/').pop() || mount;
-        disks.push({ name, path: mount, free_gb: freeGb, total_gb: totalGb });
-      }
-    }
-    return disks;
-  } catch (e) {
-    console.error('listHostDisks failed:', e.message);
-    return [];
-  }
-}
-
 // Folder picker — returns host paths directly (no backend mapping needed; the
 // local scanner reads the host filesystem in place).
 ipcMain.handle('select-folder', async () => {
@@ -217,6 +187,14 @@ function registerLocalIpc() {
   ipcMain.handle('local:list-person-previews', (_e, ids) => {
     const local = getLocalServices();
     return require('../../dist-main/local.js').listPersonPreviews(local, ids || []);
+  });
+  ipcMain.handle('local:list-no-face-photos', () => {
+    const local = getLocalServices();
+    return require('../../dist-main/local.js').listPhotosNoFaces(local);
+  });
+  ipcMain.handle('local:count-no-face-photos', () => {
+    const local = getLocalServices();
+    return require('../../dist-main/local.js').countPhotosNoFaces(local);
   });
 
   ipcMain.handle('local:photo-faces', (_e, photoId) => {
@@ -367,7 +345,7 @@ registerAuthIpc();
 
 // API-based IPC (legacy — kept for in-app update checks later)
 ipcMain.handle('get-api-base', () => API_BASE);
-ipcMain.handle('list-disks', () => listHostDisks());
+
 
 // In-app update seam: the backend serves release manifests for the desktop app.
 // Renderer calls this to check for a new version; main is the only place that

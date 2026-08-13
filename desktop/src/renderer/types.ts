@@ -13,8 +13,6 @@ export type Photo = {
   height?: number | null
 }
 
-export type Disk = { name: string; path: string; free_gb?: number; total_gb?: number }
-
 export type Folder = {
   folder_id: string
   host_path: string

@@ -1,4 +1,4 @@
-import type { AuthStatus, Disk, Folder, Person, Photo, UpdateInfo } from '../types'
+import type { AuthStatus, Folder, Person, Photo, UpdateInfo } from '../types'
 
 /** Safe accessor — returns undefined (never throws) when the bridge is missing. */
 function bridge(): any {
@@ -14,19 +14,6 @@ export function getPathForFile(file: File): string | null {
   } catch (e) {
     console.error('getPathForFile failed', e)
     return null
-  }
-}
-
-/** Disks (real host mounts via Electron) */
-export async function listDisks(): Promise<Disk[]> {
-  const api = bridge()
-  if (!api?.listDisks) return []
-  try {
-    const disks = await api.listDisks()
-    return Array.isArray(disks) ? disks : []
-  } catch (e) {
-    console.error('Failed to load disks', e)
-    return []
   }
 }
 
@@ -74,6 +61,30 @@ export const local = {
     } catch (e) {
       console.error('Failed to load person previews', e)
       return []
+    }
+  },
+
+  async listNoFacePhotos(): Promise<Photo[]> {
+    const api = bridge()
+    if (!api?.local?.listNoFacePhotos) return []
+    try {
+      const rows = await api.local.listNoFacePhotos()
+      return (rows || []).map((p: any) => ({ ...p, photo_id: p.photoId || p.photo_id, thumb_path: p.thumbUrl ?? p.thumbPath }))
+    } catch (e) {
+      console.error('Failed to load no-face photos', e)
+      return []
+    }
+  },
+
+  async countNoFacePhotos(): Promise<number> {
+    const api = bridge()
+    if (!api?.local?.countNoFacePhotos) return 0
+    try {
+      const n = await api.local.countNoFacePhotos()
+      return typeof n === 'number' ? n : 0
+    } catch (e) {
+      console.error('countNoFacePhotos failed', e)
+      return 0
     }
   },
 

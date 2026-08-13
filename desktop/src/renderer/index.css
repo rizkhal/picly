@@ -58,39 +58,6 @@ html, body, #root {
   letter-spacing: 0.08em;
 }
 
-/* Collapsible section title — whole row clickable, caret rotates when open */
-.sidebar-collapse-btn {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  width: 100%;
-  background: none;
-  border: none;
-  text-align: left;
-  font-family: inherit;
-  font-size: 11px; /* match .sidebar-section-title so Disk title sizes like Collections/Folders */
-  cursor: pointer;
-  color: var(--text-muted);
-  padding: 4px 2px;
-  border-radius: 4px;
-  transition: color 0.15s, background 0.15s;
-}
-
-.sidebar-collapse-btn:hover {
-  color: var(--text);
-  background: var(--surface-2);
-}
-
-.section-caret {
-  flex-shrink: 0;
-  opacity: 0.6;
-  transition: transform 0.15s;
-}
-
-.section-caret.open {
-  transform: rotate(90deg);
-}
-
 /* Section header row with an inline text action (e.g. "+ Add folder") */
 .sidebar-section-title-row {
   display: flex;
@@ -171,52 +138,7 @@ html, body, #root {
   margin: 8px 12px;
 }
 
-.disk-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.disk-icon {
-  font-size: 18px;
-  flex-shrink: 0;
-}
-
-.disk-item {
-  padding: 8px 10px;
-  margin-bottom: 4px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.disk-item:hover { background: var(--surface-2); }
-.disk-item.active { background: var(--surface-2); }
-
 .disk-info { min-width: 0; }
-
-.disk-name {
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.disk-path {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 1px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.disk-space {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
 
 /* People rail — avatar nav */
 .people-rail {
@@ -370,7 +292,7 @@ html, body, #root {
 }
 .person-item:hover .person-actions { display: flex; }
 
-/* Pinned bottom block: disk list + API status, anchored to the sidebar bottom */
+/* Pinned bottom block: scope shortcut + status, anchored to the sidebar bottom */
 .sidebar-bottom {
   margin-top: auto;
   padding-top: 4px;
