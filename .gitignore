@@ -35,6 +35,9 @@ uploads/
 # Local sample data
 /photos/
 
+# Sample datasets (psdkp-sample-tile etc.)
+/data/
+
 # Desktop local database + thumbnails
 /desktop/data/
 
