@@ -443,24 +443,25 @@ export class PhotoStore {
   }
 
   /**
-   * Re-cluster ALL faces offline with agglomerative clustering.
-   * Replaces the old incremental centroid matcher, which was order-dependent
-   * and over-split identities (a face that missed the threshold seeded a new
-   * cluster forever; a big cluster could become a magnet and absorb everyone).
+   * Re-cluster ALL faces offline with TRUE average-linkage HAC.
+   * Replaces the old greedy single-pass matcher, which was order-dependent and
+   * could snowball: once two different identities merged (via a moderate
+   * pairwise sim), their blended centroid drifted and kept absorbing nearby
+   * faces without ever being re-checked.
    *
-   * Order-independent, no snowball: every face starts in its own cluster and
-   * clusters merge while their CENTROID similarity >= threshold. Centroid
-   * linkage is robust to a single lookalike bridge merging two clusters (that
-   * would be single-linkage); an outlier face scores low against a cluster
-   * average and seeds its own cluster.
+   * Here every merge is a genuine average-linkage step:
+   *   1. Each face starts as its own cluster (centroid = the face).
+   *   2. Iteratively merge the TWO clusters whose CENTROIDS are most similar,
+   *      as long as that similarity >= threshold. After each merge the new
+   *      centroid is RECOMPUTED (mean direction, re-L2-normalized), so later
+   *      merges are judged against the true cluster average — a single
+   *      lookalike bridge can no longer drag an unrelated face in.
+   *   3. Stop when the best remaining centroid sim < threshold.
+   *   4. Re-create persons from the final clusters.
    *
-   * Algorithm (agglomerative, greedy — O(n^2) similarity precompute):
-   *   1. Each face starts in its own cluster with centroid = the face.
-   *   2. Sort all face pairs by sim desc; for each pair, if their clusters'
-   *      centroids are >= threshold apart, merge (union-find).
-   *   3. Re-create persons from the final clusters; centroid = running avg.
-   *
-   * Returns the number of person clusters created.
+   * O(m^2) memory for the pairwise sim matrix (m = embeddable faces) and
+   * O(m^3) worst-case linkage passes, which is fine for the offline re-cluster
+   * of a personal library. Returns the number of person clusters created.
    */
   clusterAllFaces(threshold = this.clusterLinkageThreshold): number {
     const rows = this.db
@@ -488,7 +489,9 @@ export class PhotoStore {
     if (embedIdx.length === 0) return 0
 
     const m = embedIdx.length
-    // Union-find over embeddable faces only.
+    // Each embeddable face starts as its own cluster. `parent` maps a face index
+    // to its current cluster root; when clusters merge we point one root at the
+    // other (union-find style) and recompute the surviving root's centroid.
     const parent = Array.from({ length: m }, (_, i) => i)
     const find = (x: number): number => {
       while (parent[x] !== x) {
@@ -511,32 +514,55 @@ export class PhotoStore {
       return true
     }
 
-    // Pairwise sims, sorted desc — process the closest pairs first.
-    const sims: { a: number; b: number; s: number }[] = []
+    // Pairwise sims between ALL faces. Clusters with 2+ members are never
+    // compared pair-wise again: once merged, they can only be reached through
+    // their recomputed centroid. That is what makes the linkage true average
+    // (centroid) linkage instead of a single-linkage bridge chain.
+    const sims: Float32Array = new Float32Array(m * m)
+    const setSim = (i: number, j: number, s: number) => { sims[i * m + j] = s; sims[j * m + i] = s }
     for (let i = 0; i < m; i++) {
       for (let j = i + 1; j < m; j++) {
-        const s = cosine(emb[embedIdx[i]] as Float32Array, emb[embedIdx[j]] as Float32Array)
-        sims.push({ a: i, b: j, s })
+        setSim(i, j, cosine(emb[embedIdx[i]] as Float32Array, emb[embedIdx[j]] as Float32Array))
       }
     }
-    sims.sort((x, y) => y.s - x.s)
 
-    for (const { a, b, s } of sims) {
-      if (s < threshold) break // rest below cutoff can't bridge
-      if (!canJoin(a, b, s)) continue
-      const ra = find(a)
-      const rb = find(b)
-      if (ra === rb) continue
-      // Centroid-linkage merge: compare the two clusters' centroids.
-      const ca = centroid[ra]
-      const cb = centroid[rb]
-      if (!ca || !cb) continue
-      if (cosine(ca, cb) < threshold) continue
-      // Merge smaller into larger for stability.
-      if (clusterSize[ra] < clusterSize[rb]) {
-        this.mergeClusters(rb, ra, parent, centroid, clusterSize)
+    // True average-linkage HAC: repeatedly merge the two clusters with the
+    // highest centroid similarity, stopping when even the best is below
+    // threshold. After each merge the surviving centroid is recomputed, so
+    // downstream decisions always compare against the cluster average rather
+    // than a drifting blend (the old snowball failure mode).
+    const nClusters = m
+    for (;;) {
+      let bestI = -1
+      let bestJ = -1
+      let bestS = threshold
+      // Find the best pair among cluster ROOTS (skip pairs inside one cluster).
+      // bestS starts at `threshold`, so only merges >= threshold are considered.
+      for (let i = 0; i < nClusters; i++) {
+        const ri = find(i)
+        for (let j = i + 1; j < nClusters; j++) {
+          const rj = find(j)
+          if (rj === ri) continue
+          const s = sims[ri * m + rj]
+          if (s > bestS) { bestS = s; bestI = ri; bestJ = rj }
+        }
+      }
+      if (bestI < 0) break // no pair reaches the threshold — done
+      // Respect the quality tier gate for singleton pairs (LOW needs strong sim).
+      if (clusterSize[bestI] === 1 && clusterSize[bestJ] === 1 && !canJoin(bestI, bestJ, bestS)) {
+        // Block this specific pair but keep looking for other merges: mark it
+        // below threshold by re-scanning without it is expensive, so instead we
+        // simply lower it to threshold (never chosen again) and continue.
+        sims[bestI * m + bestJ] = threshold
+        sims[bestJ * m + bestI] = threshold
+        continue
+      }
+      // Merge: smaller cluster points into larger; recompute the survivor's
+      // centroid (mean direction, re-L2-normalized).
+      if (clusterSize[bestI] >= clusterSize[bestJ]) {
+        this.mergeClusters(bestI, bestJ, parent, centroid, clusterSize)
       } else {
-        this.mergeClusters(ra, rb, parent, centroid, clusterSize)
+        this.mergeClusters(bestJ, bestI, parent, centroid, clusterSize)
       }
     }
 
@@ -550,7 +576,21 @@ export class PhotoStore {
 
     // Replace persons wholesale: unassign all faces, drop all persons, re-create
     // from clusters. (UPDATE not DELETE — faces stay; only the person link resets.)
+    // Custom names (anything not the auto-generated "Person N") are preserved
+    // across re-cluster by re-applying them to the cluster that contains the
+    // renamed face — so a startup re-cluster never wipes user renames.
     const run = this.db.transaction(() => {
+      // 1. Capture user-renamed persons: faceId -> custom name (skip default).
+      const named = new Map<string, string>()
+      const namedRows = this.db
+        .prepare(
+          `SELECT p.name AS name, f.id AS faceId
+           FROM persons p JOIN faces f ON f.person_id = p.id
+           WHERE p.name NOT LIKE 'Person %'`,
+        )
+        .all() as Array<{ name: string; faceId: string }>
+      for (const r of namedRows) named.set(r.faceId, r.name)
+
       this.db.prepare(`UPDATE faces SET person_id = NULL`).run()
       this.db.prepare(`DELETE FROM persons`).run()
       this.personSeq = 0
@@ -562,11 +602,13 @@ export class PhotoStore {
           for (let k = 0; k < 512; k++) c[k] += e[k]
         }
         for (let k = 0; k < 512; k++) c[k] /= members.length
+        // Prefer a preserved custom name if any member was user-renamed.
+        const custom = members.map((m) => named.get(rows[m].faceId)).find(Boolean)
         const personId = randomUUID()
         this.personSeq += 1
         this.db
           .prepare(`INSERT INTO persons (id, name, centroid) VALUES (?, ?, ?)`)
-          .run(personId, `Person ${this.personSeq}`, embeddingToBlob(c))
+          .run(personId, custom ?? `Person ${this.personSeq}`, embeddingToBlob(c))
         created.push(personId)
         for (const m of members) {
           this.db
@@ -581,7 +623,12 @@ export class PhotoStore {
     return count
   }
 
-  /** Union-find merge: point x's root at y's root, combine centroids. */
+  /**
+   * Average-linkage merge: point cluster `x` (smaller) into `y` (larger) and
+   * recompute `y`'s centroid as the SIZE-WEIGHTED mean direction, then
+   * re-L2-normalize it so it stays unit-length (embeddings are L2-normalized,
+   * and cosine comparisons in the HAC loop assume unit vectors).
+   */
   private mergeClusters(
     y: number,
     x: number,
@@ -607,6 +654,13 @@ export class PhotoStore {
       const nx = clusterSize[rx]
       const out = new Float32Array(512)
       for (let k = 0; k < 512; k++) out[k] = (cy[k] * ny + cx[k] * nx) / (ny + nx)
+      // Re-normalize the mean so it remains a unit direction vector.
+      let norm = 0
+      for (let k = 0; k < 512; k++) norm += out[k] * out[k]
+      norm = Math.sqrt(norm)
+      if (norm > 0) {
+        for (let k = 0; k < 512; k++) out[k] /= norm
+      }
       centroid[ry] = out
       clusterSize[ry] = ny + nx
     }

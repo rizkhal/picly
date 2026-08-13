@@ -31,6 +31,10 @@ export function createLocalServices(config: LocalConfig): LocalServices {
   // One-time housekeeping on startup: drop abandoned persons + orphan thumb
   // files (leftovers from earlier deletes that predate thumb cleanup).
   store.cleanupOrphans()
+  // Re-cluster all faces with the current HAC algorithm. Clustering only runs
+  // at the end of a scan, so without this an algorithm upgrade would never
+  // re-assign faces that were clustered by an older version.
+  store.clusterAllFaces()
   let analysisPromise: Promise<FaceAnalysis> | null = null
   return {
     config,
