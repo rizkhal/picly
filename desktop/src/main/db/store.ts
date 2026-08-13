@@ -24,18 +24,28 @@ export const CLUSTER_MATCH_THRESHOLD = 0.5
 export const SEARCH_MIN_SIM = 0.5
 
 /**
+ * A LOW-quality face may only JOIN an existing cluster when its similarity is
+ * strongly above the normal linkage threshold — it must never seed a cluster on
+ * its own (prevents tiny faces from creating over-split singletons).
+ */
+export const LOW_JOIN_SIM = 0.6
+
+/**
+ * Offline clustering (HAC average-linkage) cutoff — see clusterAllFaces.
+ * PRODUCTION DEFAULT: 0.45 (benchmarked 2026-08 on LFW + psdkp crowded
+ * photos — recall 0.960→0.975 vs 0.50 at only +0.05% false-merge risk).
+ * Rollback to the old 0.50 by passing { clusterLinkageThreshold: 0.5 } in
+ * StoreOptions, or by flipping this constant — the benchmark numbers for
+ * both thresholds are preserved in desktop/data/debug/cluster-tune.json.
+ */
+export const CLUSTER_LINKAGE_THRESHOLD = 0.45
+
+/**
  * When a face matches no existing cluster (sim < CLUSTER_MATCH_THRESHOLD to
  * every centroid), it seeds a NEW cluster whose centroid is that face. But if
  * the face matched a cluster with sim >= CLUSTER_MATCH_THRESHOLD while also
  * being closer to ANOTHER cluster, we merge into the closest one instead of
  * seeding a duplicate cluster (prevents the snowball over-split).
- */
-
-/**
- * Cosine threshold for joining a face to an existing person cluster
- * (centroid similarity, see matchPerson). Tuned on LFW: intra-identity sim
- * is >= 0.62 while inter-identity is <= 0.14, so 0.5 sits safely in between
- * (0.3 over-merges — a 528-photo blob; 0.6 over-splits small clusters).
  */
 
 export interface StoreOptions {
@@ -44,8 +54,19 @@ export interface StoreOptions {
    * (centroid similarity, see matchPerson). Tuned on LFW: intra-identity sim
    * is >= 0.62 while inter-identity is <= 0.14, so 0.5 sits safely in between
    * (0.3 over-merges — a 528-photo blob; 0.6 over-splits small clusters).
+   *
+   * NOTE: with offline HAC clustering (clusterAllFaces), this threshold is no
+   * longer used at insert time — faces are stored unassigned and clustered in
+   * one pass after the scan.
    */
   clusterThreshold?: number
+  /**
+   * Offline HAC clustering cutoff (see clusterAllFaces). Defaults to
+   * CLUSTER_LINKAGE_THRESHOLD (0.45). Pass 0.5 to roll back to the
+   * previously shipped behavior. LOW-quality faces additionally require
+   * LOW_JOIN_SIM (0.6) to join an existing cluster.
+   */
+  clusterLinkageThreshold?: number
   /**
    * Thumbnail/crop directory (same one the scanner writes to). When set,
    * deletePhoto/deleteFolder/cleanupOrphans also unlink the matching thumb
@@ -108,24 +129,17 @@ interface FaceCacheRow {
   embedding: Float32Array
 }
 
-interface PersonCentroidRow {
-  personId: string
-  name: string
-  centroid: Float32Array | null
-}
-
 /** Local SQLite store mirroring the backend schema + clustering behavior. */
 export class PhotoStore {
   private db: Database.Database
   private facesCache: FaceCacheRow[] | null = null
-  private personCentroids: PersonCentroidRow[] | null = null
   private personSeq = 0
-  private readonly clusterThreshold: number
+  private readonly clusterLinkageThreshold: number
   private readonly thumbDir: string | null
 
   private constructor(db: Database.Database, options: StoreOptions = {}) {
     this.db = db
-    this.clusterThreshold = options.clusterThreshold ?? CLUSTER_MATCH_THRESHOLD
+    this.clusterLinkageThreshold = options.clusterLinkageThreshold ?? CLUSTER_LINKAGE_THRESHOLD
     this.thumbDir = options.thumbDir ?? null
     this.personSeq = (this.db.prepare('SELECT COUNT(*) AS n FROM persons').get() as { n: number }).n
   }
@@ -358,15 +372,24 @@ export class PhotoStore {
       .all(...ids) as Array<{ personId: string; faceId: string; photoPath: string | null }>
   }
 
-  // ------------------------------------------- faces + clustering (incremental centroid)
+  // ------------------------------------------- faces + clustering (offline HAC)
 
   /**
-   * Insert a face, matching/creating its person cluster (centroid cosine
-   * matching with running-average update). Embedding NULL faces (very_low
-   * quality) are stored unassigned — they're detections, not recognition.
+   * Insert a face with NO person assignment — clustering happens offline via
+   * clusterAllFaces after the scan completes (order-independent, no snowball
+   * over-split). Kept for compatibility with scan-test/cluster-test callers.
    */
   addFaceWithCluster(face: AddFaceInput): { faceId: string; personId: string | null; isNewPerson: boolean } {
-    const run = this.db.transaction(() => this.clusterFace(face))
+    const run = this.db.transaction(() => {
+      const faceId = face.id ?? randomUUID()
+      this.db
+        .prepare(
+          `INSERT INTO faces (id, photo_id, person_id, x1, y1, x2, y2, embedding, face_quality, low_quality, quality_score)
+           VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(faceId, face.photoId, face.x1, face.y1, face.x2, face.y2, face.embedding ? embeddingToBlob(face.embedding) : null, face.faceQuality ?? 'medium', face.lowQuality ? 1 : 0, face.qualityScore ?? 0.5)
+      return { faceId, personId: null, isNewPerson: true }
+    })
     const result = run()
     this.invalidate()
     return result
@@ -374,102 +397,196 @@ export class PhotoStore {
 
   /**
    * Insert a photo and all of its faces in ONE transaction (no orphan photo
-   * or person on partial failure). Returns null when the path already exists.
+   * or person on partial failure). Faces are inserted unassigned; run
+   * clusterAllFaces() after the scan to assign persons.
    */
   addPhotoWithFaces(photo: AddPhotoInput, faces: AddFaceInput[]): Array<{ faceId: string; personId: string | null; isNewPerson: boolean }> | null {
     const run = this.db.transaction(() => {
       if (!this.addPhoto(photo)) return null
-      return faces.map((f) => this.clusterFace(f))
+      return faces.map((f) => {
+        const faceId = f.id ?? randomUUID()
+        this.db
+          .prepare(
+            `INSERT INTO faces (id, photo_id, person_id, x1, y1, x2, y2, embedding, face_quality, low_quality, quality_score)
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(faceId, f.photoId, f.x1, f.y1, f.x2, f.y2, f.embedding ? embeddingToBlob(f.embedding) : null, f.faceQuality ?? 'medium', f.lowQuality ? 1 : 0, f.qualityScore ?? 0.5)
+        return { faceId, personId: null, isNewPerson: true }
+      })
     })
     const result = run()
     this.invalidate()
     return result
   }
 
-  /** Clustering + inserts for one face. Must run inside a transaction. */
-  private clusterFace(face: AddFaceInput): { faceId: string; personId: string | null; isNewPerson: boolean } {
-    const faceId = face.id ?? randomUUID()
-
-    // very_low-quality faces have no embedding (skipped at detection time) —
-    // store them unassigned. They remain visible as detections in the UI but
-    // never create or join a person cluster.
-    if (face.embedding === null) {
-      this.db
-        .prepare(
-          `INSERT INTO faces (id, photo_id, person_id, x1, y1, x2, y2, embedding, face_quality, low_quality, quality_score)
-           VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(faceId, face.photoId, face.x1, face.y1, face.x2, face.y2, null, face.faceQuality ?? 'medium', face.lowQuality ? 1 : 0, face.qualityScore ?? 0.5)
-      return { faceId, personId: null, isNewPerson: true }
-    }
-
-    const match = this.matchPerson(face.embedding)
-
-    let personId: string
-    let isNewPerson = false
-    // Join decision uses CENTROID similarity (mirror the Python backend).
-    // Face-to-face matching looks attractive but lets a foreign face stick to a
-    // large cluster through a single lookalike member (contamination at scale);
-    // the centroid is robust to that — an outlier face scores low against the
-    // cluster average and seeds its own cluster instead.
-    if (match && match.centroid && cosine(face.embedding, match.centroid) >= this.clusterThreshold) {
-      personId = match.personId
-      // Update centroid as a running average over the cluster's face count.
-      // (A 50/50 blend with the previous centroid drifts toward the first
-      // faces; a batch-aware average keeps the centroid centered.)
-      const old = match.centroid
-      const n = (this.db.prepare(`SELECT COUNT(*) AS n FROM faces WHERE person_id = ?`).get(personId) as { n: number }).n
-      const next = new Float32Array(512)
-      const w = n / (n + 1)
-      for (let i = 0; i < 512; i++) next[i] = old[i] * w + face.embedding[i] * (1 - w)
-      this.db
-        .prepare(`UPDATE persons SET centroid = ?, updated_at = datetime('now') WHERE id = ?`)
-        .run(embeddingToBlob(next), personId)
-      // Keep the in-memory centroid cache fresh so later faces in the same
-      // batch (same transaction) match against the updated centroid.
-      if (this.personCentroids) {
-        const cached = this.personCentroids.find((p) => p.personId === personId)
-        if (cached) cached.centroid = next
-      }
-    } else {
-      personId = randomUUID()
-      this.personSeq += 1
-      isNewPerson = true
-      this.db
-        .prepare(`INSERT INTO persons (id, name, centroid) VALUES (?, ?, ?)`)
-        .run(personId, `Person ${this.personSeq}`, embeddingToBlob(face.embedding))
-      this.personCentroids?.push({ personId, name: `Person ${this.personSeq}`, centroid: new Float32Array(face.embedding) })
-    }
-
-    this.db
+  /**
+   * Re-cluster ALL faces offline with agglomerative clustering.
+   * Replaces the old incremental centroid matcher, which was order-dependent
+   * and over-split identities (a face that missed the threshold seeded a new
+   * cluster forever; a big cluster could become a magnet and absorb everyone).
+   *
+   * Order-independent, no snowball: every face starts in its own cluster and
+   * clusters merge while their CENTROID similarity >= threshold. Centroid
+   * linkage is robust to a single lookalike bridge merging two clusters (that
+   * would be single-linkage); an outlier face scores low against a cluster
+   * average and seeds its own cluster.
+   *
+   * Algorithm (agglomerative, greedy — O(n^2) similarity precompute):
+   *   1. Each face starts in its own cluster with centroid = the face.
+   *   2. Sort all face pairs by sim desc; for each pair, if their clusters'
+   *      centroids are >= threshold apart, merge (union-find).
+   *   3. Re-create persons from the final clusters; centroid = running avg.
+   *
+   * Returns the number of person clusters created.
+   */
+  clusterAllFaces(threshold = this.clusterLinkageThreshold): number {
+    const rows = this.db
       .prepare(
-        `INSERT INTO faces (id, photo_id, person_id, x1, y1, x2, y2, embedding, face_quality, low_quality, quality_score)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `SELECT id AS faceId, photo_id AS photoId, embedding, face_quality AS faceQuality, low_quality AS lowQuality
+         FROM faces`,
       )
-      .run(faceId, face.photoId, personId, face.x1, face.y1, face.x2, face.y2, embeddingToBlob(face.embedding), face.faceQuality ?? 'medium', face.lowQuality ? 1 : 0, face.qualityScore ?? 0.5)
-    return { faceId, personId, isNewPerson }
+      .all() as Array<{ faceId: string; photoId: string; embedding: Buffer | null; faceQuality: string; lowQuality: number }>
+    if (rows.length === 0) return 0
+
+    // VERY_LOW faces (below embedding threshold) have NULL embedding and never
+    // participate in clustering — they are still detections (shown in UI), but
+    // must not create or join clusters. LOW faces participate only via strong
+    // joins (see matchQuality below), never as cluster anchors.
+    const n = rows.length
+    const emb = rows.map((r) => (r.embedding ? blobToEmbedding(r.embedding) : null))
+    const q = rows.map((r) => r.faceQuality as FaceQuality)
+    const hasEmb = emb.map((e) => e !== null)
+    const idxOf = new Map<string, number>()
+    const embedIdx: number[] = []
+    for (let i = 0; i < n; i++) {
+      idxOf.set(rows[i].faceId, i)
+      if (hasEmb[i]) embedIdx.push(i)
+    }
+    if (embedIdx.length === 0) return 0
+
+    const m = embedIdx.length
+    // Union-find over embeddable faces only.
+    const parent = Array.from({ length: m }, (_, i) => i)
+    const find = (x: number): number => {
+      while (parent[x] !== x) {
+        parent[x] = parent[parent[x]]
+        x = parent[x]
+      }
+      return x
+    }
+    const centroid = embedIdx.map((i) => emb[i] as Float32Array)
+    const clusterSize = new Array<number>(m).fill(1)
+
+    // Tier join rule: two faces may merge only if BOTH are high/medium, OR the
+    // pair involves a low face but their sim is strong (>= lowJoinSim). This
+    // stops a tiny low-quality face from seeding its own cluster while still
+    // letting it join a real person when the evidence is strong.
+    const canJoin = (ia: number, ib: number, s: number): boolean => {
+      const qa = q[embedIdx[ia]]
+      const qb = q[embedIdx[ib]]
+      if (qa === 'low' || qb === 'low') return s >= LOW_JOIN_SIM
+      return true
+    }
+
+    // Pairwise sims, sorted desc — process the closest pairs first.
+    const sims: { a: number; b: number; s: number }[] = []
+    for (let i = 0; i < m; i++) {
+      for (let j = i + 1; j < m; j++) {
+        const s = cosine(emb[embedIdx[i]] as Float32Array, emb[embedIdx[j]] as Float32Array)
+        sims.push({ a: i, b: j, s })
+      }
+    }
+    sims.sort((x, y) => y.s - x.s)
+
+    for (const { a, b, s } of sims) {
+      if (s < threshold) break // rest below cutoff can't bridge
+      if (!canJoin(a, b, s)) continue
+      const ra = find(a)
+      const rb = find(b)
+      if (ra === rb) continue
+      // Centroid-linkage merge: compare the two clusters' centroids.
+      const ca = centroid[ra]
+      const cb = centroid[rb]
+      if (!ca || !cb) continue
+      if (cosine(ca, cb) < threshold) continue
+      // Merge smaller into larger for stability.
+      if (clusterSize[ra] < clusterSize[rb]) {
+        this.mergeClusters(rb, ra, parent, centroid, clusterSize)
+      } else {
+        this.mergeClusters(ra, rb, parent, centroid, clusterSize)
+      }
+    }
+
+    // Build final clusters: root -> member face indices (map back to full rows).
+    const clusters = new Map<number, number[]>()
+    for (let i = 0; i < m; i++) {
+      const r = find(i)
+      if (!clusters.has(r)) clusters.set(r, [])
+      clusters.get(r)!.push(embedIdx[i])
+    }
+
+    // Replace persons wholesale: unassign all faces, drop all persons, re-create
+    // from clusters. (UPDATE not DELETE — faces stay; only the person link resets.)
+    const run = this.db.transaction(() => {
+      this.db.prepare(`UPDATE faces SET person_id = NULL`).run()
+      this.db.prepare(`DELETE FROM persons`).run()
+      this.personSeq = 0
+      const created: string[] = []
+      for (const members of clusters.values()) {
+        const c = new Float32Array(512)
+        for (const m of members) {
+          const e = emb[m] as Float32Array
+          for (let k = 0; k < 512; k++) c[k] += e[k]
+        }
+        for (let k = 0; k < 512; k++) c[k] /= members.length
+        const personId = randomUUID()
+        this.personSeq += 1
+        this.db
+          .prepare(`INSERT INTO persons (id, name, centroid) VALUES (?, ?, ?)`)
+          .run(personId, `Person ${this.personSeq}`, embeddingToBlob(c))
+        created.push(personId)
+        for (const m of members) {
+          this.db
+            .prepare(`UPDATE faces SET person_id = ? WHERE id = ?`)
+            .run(personId, rows[m].faceId)
+        }
+      }
+      return created.length
+    })
+    const count = run()
+    this.invalidate()
+    return count
   }
 
-  /**
-   * Nearest person via CENTROID cosine (mirror the Python backend).
-   *
-   * The centroid is the cluster's running average embedding. Comparing a new
-   * face against centroids (rather than member faces) is robust to lookalike
-   * contamination — see clusterFace for the tradeoff vs face-to-face matching.
-   */
-  private matchPerson(embedding: Float32Array): { personId: string; centroid: Float32Array | null } | null {
-    this.personCentroids ??= this.loadPersonCentroids()
-    let best: { personId: string; centroid: Float32Array | null } | null = null
-    let bestSim = -Infinity
-    for (const p of this.personCentroids) {
-      if (!p.centroid) continue
-      const sim = cosine(embedding, p.centroid)
-      if (sim > bestSim) {
-        bestSim = sim
-        best = { personId: p.personId, centroid: p.centroid }
+  /** Union-find merge: point x's root at y's root, combine centroids. */
+  private mergeClusters(
+    y: number,
+    x: number,
+    parent: number[],
+    centroid: (Float32Array | null)[],
+    clusterSize: number[],
+  ): void {
+    const rootOf = (i: number): number => {
+      while (parent[i] !== i) {
+        parent[i] = parent[parent[i]]
+        i = parent[i]
       }
+      return i
     }
-    return best
+    const ry = rootOf(y)
+    const rx = rootOf(x)
+    if (ry === rx) return
+    parent[rx] = ry
+    const cy = centroid[ry]
+    const cx = centroid[rx]
+    if (cy && cx) {
+      const ny = clusterSize[ry]
+      const nx = clusterSize[rx]
+      const out = new Float32Array(512)
+      for (let k = 0; k < 512; k++) out[k] = (cy[k] * ny + cx[k] * nx) / (ny + nx)
+      centroid[ry] = out
+      clusterSize[ry] = ny + nx
+    }
   }
 
   /**
@@ -683,17 +800,7 @@ export class PhotoStore {
     return this.facesCache
   }
 
-  private loadPersonCentroids(): PersonCentroidRow[] {
-    if (this.personCentroids) return this.personCentroids
-    const rows = this.db
-      .prepare(`SELECT id AS personId, name, centroid FROM persons`)
-      .all() as Array<{ personId: string; name: string; centroid: Buffer | null }>
-    this.personCentroids = rows.map((r) => ({ personId: r.personId, name: r.name, centroid: r.centroid ? blobToEmbedding(r.centroid) : null }))
-    return this.personCentroids
-  }
-
   private invalidate(): void {
     this.facesCache = null
-    this.personCentroids = null
   }
 }

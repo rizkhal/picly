@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   rmSync(thumbDir, { recursive: true, force: true })
   mkdirSync(dataDir, { recursive: true })
 
-  const store = PhotoStore.open(dbPath, { clusterThreshold: THRESHOLD })
+  const store = PhotoStore.open(dbPath, { clusterLinkageThreshold: THRESHOLD })
   const analysis = await FaceAnalysis.create()
 
   const expectedDir = new Map<string, string>() // personDir -> identity
@@ -57,7 +57,7 @@ async function main(): Promise<void> {
 
   const persons = store.listPersons()
   console.log(`\npersons created: ${persons.length} (identities: ${PEOPLE.length})`)
-  console.log(`threshold=${THRESHOLD} — CLUSTER_MATCH_THRESHOLD mirrors the Python backend; on hard LFW data it deliberately oversegments (precision over recall). Correctness = no cross-identity mixing + every identity covered.`)
+  console.log(`threshold=${THRESHOLD} — CLUSTER_LINKAGE_THRESHOLD (HAC cutoff) tuned on LFW; correctness = no cross-identity mixing + every identity covered.`)
 
   let pass = true
   const usedDirs = new Set<string>()

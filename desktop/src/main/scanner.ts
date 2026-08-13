@@ -225,6 +225,15 @@ export async function scanFolder(
 
   store.markFolderScanned(folderPath)
 
+  // Offline clustering: faces were stored unassigned during the scan; run HAC
+  // over ALL faces (new + existing) so persons stay globally consistent and
+  // order-independent. Skip when cancelled (no partial re-cluster).
+  if (!cancelled) {
+    personCount = store.clusterAllFaces()
+    progress.persons = personCount
+    emit()
+  }
+
   // Rescan: remove photos whose file is gone from disk (delta sync). Faces
   // cascade-delete via FK; thumbnail/crop files are cleaned up alongside.
   if (options.rescan && !cancelled) {
