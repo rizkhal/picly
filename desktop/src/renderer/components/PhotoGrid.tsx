@@ -1,5 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FaceBox, Photo } from '../types'
+import * as ipc from '../lib/electron'
+
+type ModalFace = { faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null }
 
 type PhotoGridProps = {
   photos: Photo[]
@@ -56,7 +59,24 @@ type PhotoModalProps = {
 }
 
 export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLocation, onDeletePhoto, selectedPerson, personName, gridFaceBoxes }: PhotoModalProps) {
-  const faceBoxForPhoto = gridFaceBoxes[photo.photo_id]
+  // Faces (bbox + person) for the CURRENT photo — fetched when the photo or
+  // the selected person filter changes. Used to draw the selected-person
+  // rectangle even when the grid didn't pre-fetch boxes for this photo.
+  const [faces, setFaces] = useState<ModalFace[]>([])
+  useEffect(() => {
+    let active = true
+    setFaces([])
+    ipc.local.photoFaces(photo.photo_id).then((rows) => {
+      if (active) setFaces(rows)
+    })
+    return () => { active = false }
+  }, [photo.photo_id])
+
+  // Rectangle for the selected person in this photo:
+  //  1. grid pre-fetched box (search/person scope) — single source of truth
+  //  2. otherwise find the face whose person matches selectedPerson
+  const faceBoxForPhoto = gridFaceBoxes[photo.photo_id] ??
+    (selectedPerson ? faces.find((f) => f.personId === selectedPerson) ?? null : null)
   const prevIndex = index - 1
   const nextIndex = index + 1
   const hasPrev = prevIndex >= 0
@@ -98,6 +118,17 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                   src={`picly://src/${photo.photo_id}.jpg`}
                   alt=""
                 />
+                {faceBoxForPhoto && (
+                  <div
+                    className={`face-box${selectedPerson ? ' active' : ''}`}
+                    style={{
+                      left: `${(faceBoxForPhoto.x1 / (photo.width || 1)) * 100}%`,
+                      top: `${(faceBoxForPhoto.y1 / (photo.height || 1)) * 100}%`,
+                      width: `${((faceBoxForPhoto.x2 - faceBoxForPhoto.x1) / (photo.width || 1)) * 100}%`,
+                      height: `${((faceBoxForPhoto.y2 - faceBoxForPhoto.y1) / (photo.height || 1)) * 100}%`,
+                    }}
+                  />
+                )}
               </div>
             </div>
           </div>

@@ -118,6 +118,19 @@ export const local = {
     }
   },
 
+  /** Faces (bbox + person) for one photo — used by the modal to draw the
+   *  selected-person rectangle even when the grid didn't pre-fetch it. */
+  async photoFaces(photoId: string): Promise<Array<{ faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null }>> {
+    const api = bridge()
+    if (!api?.local?.photoFaces) return []
+    try {
+      return (await api.local.photoFaces(photoId)) || []
+    } catch (e) {
+      console.error('photoFaces failed', photoId, e)
+      return []
+    }
+  },
+
   async scanFolder(hostPath: string): Promise<{ scanId: string } | null> {
     const api = bridge()
     if (!api?.local?.scanFolder) return null

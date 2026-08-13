@@ -871,6 +871,15 @@ html, body, #root {
   height: auto;
 }
 
+/* In the modal viewer, let the image keep its natural aspect (no contain
+   letterboxing) so face-box percentages stay pixel-accurate; the scroll
+   container handles overflow instead of a fixed max-height. */
+.modal-photo .photo-scaled .modal-image {
+  width: auto;
+  max-width: 100%;
+  max-height: none;
+}
+
 /* Face rectangle overlay — highlighted when it matches the selected person */
 .face-box {
   position: absolute;
