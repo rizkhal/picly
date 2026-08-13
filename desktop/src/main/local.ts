@@ -159,9 +159,3 @@ export function listPersonPreviews(services: LocalServices, ids: string[]): unkn
 export function photoFaces(services: LocalServices, photoId: string): unknown[] {
   return services.store.facesForPhotoView(photoId)
 }
-
-/** Face boxes for many photos at once (grid highlight), serialized as a map. */
-export function faceBoxesForPerson(services: LocalServices, personId: string, photoIds: string[]): Record<string, unknown> {
-  const boxes = services.store.faceBoxesForPerson(personId, photoIds)
-  return Object.fromEntries(boxes)
-}

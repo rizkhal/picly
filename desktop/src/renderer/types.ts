@@ -55,5 +55,3 @@ export type UpdateInfo = {
   notes?: string[] | null
   error?: string
 }
-
-export type FaceBox = { x1: number; y1: number; x2: number; y2: number }

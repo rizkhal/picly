@@ -12,10 +12,10 @@ import { UpdateBanner } from './components/UpdateBanner'
 import { SettingsPage } from './components/SettingsPage'
 
 export default function App() {
-  // Library: disks / folders / persons / photos / faceboxes
+  // Library: disks / folders / persons / photos
   const library = useLibrary()
   const {
-    persons, personPreviews, folders, disks, photos, setPhotos, gridFaceBoxes, setGridFaceBoxes,
+    persons, personPreviews, folders, disks, photos, setPhotos,
     loading, setLoading, driveStatus, scopeRef,
     loadDisks, loadFolders, loadPersons, loadPhotos, searchFace,
   } = library
@@ -89,7 +89,6 @@ export default function App() {
       setSelectedDisk(null)
       setSelectedFolder(null)
       setPhotos([])
-      setGridFaceBoxes({})
     } else {
       setSelectedPerson(personId)
       setSelectedDisk(null)
@@ -105,12 +104,10 @@ export default function App() {
       setSelectedPerson(null)
       setSelectedFolder(null)
       setPhotos([])
-      setGridFaceBoxes({})
     } else {
       setSelectedDisk(diskPath)
       setSelectedPerson(null)
       setSelectedFolder(null)
-      setGridFaceBoxes({})
       loadPhotos(null, diskPath)
     }
   }
@@ -121,13 +118,12 @@ export default function App() {
       setSelectedFolder(null)
       setSelectedPerson(null)
       setSelectedDisk(null)
+      setSelectedFolder(null)
       setPhotos([])
-      setGridFaceBoxes({})
     } else {
       setSelectedFolder(folder)
       setSelectedPerson(null)
       setSelectedDisk(null)
-      setGridFaceBoxes({})
       loadPhotos(null, null, folder.container_path)
     }
   }
@@ -137,7 +133,6 @@ export default function App() {
     const file = e.target.files?.[0]
     if (!file) return
     setLoading(true)
-    setGridFaceBoxes({}) // drop stale highlights from a previous person filter
     try {
       const res = await searchFace(file)
       setPhotos(res.photos)
@@ -336,7 +331,6 @@ export default function App() {
                   )}
                   <PhotoGrid
                     photos={photos}
-                    gridFaceBoxes={gridFaceBoxes}
                     onOpenPhoto={openPhoto}
                   />
                 </>
@@ -358,7 +352,6 @@ export default function App() {
           onDeletePhoto={handleDeletePhoto}
           selectedPerson={selectedPerson}
           personName={persons.find(p => p.person_id === selectedPhoto.person_id)?.name}
-          gridFaceBoxes={gridFaceBoxes}
         />
       )}
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Disk, Folder, Person, PersonPreview, Photo, FaceBox } from '../types'
+import type { Disk, Folder, Person, PersonPreview, Photo } from '../types'
 import * as ipc from '../lib/electron'
 
 export function useLibrary() {
@@ -8,7 +8,6 @@ export function useLibrary() {
   const [folders, setFolders] = useState<Folder[]>([])
   const [disks, setDisks] = useState<Disk[]>([])
   const [photos, setPhotos] = useState<Photo[]>([])
-  const [gridFaceBoxes, setGridFaceBoxes] = useState<Record<string, FaceBox | null>>({})
   const [loading, setLoading] = useState(false)
   const [driveStatus, setDriveStatus] = useState('Checking...')
 
@@ -44,36 +43,18 @@ export function useLibrary() {
     setPersonPreviews(previews)
   }, [])
 
-  // Fetch the face box per photo when a person filter is active (grid highlight).
-  // One batched IPC call — no per-photo round trips and no cap on photo count.
-  const loadGridFaceBoxes = useCallback(async (personId: string, photos: Array<{ photo_id: string }>) => {
-    const boxes = await ipc.local.faceBoxesForPerson(
-      personId,
-      photos.map((p) => p.photo_id),
-    )
-    setGridFaceBoxes(boxes)
-  }, [])
-
   // Load photos for selected person, folder, disk, or all (local store)
   const loadPhotos = useCallback(async (personId?: string | null, diskPath?: string | null, folderPath?: string | null) => {
     setLoading(true)
     try {
       const rows = await ipc.local.listPhotos(personId, diskPath, folderPath)
       setPhotos(rows)
-      // Person scope also refreshes the grid face-highlight boxes (same as the
-      // original inline flow — keep them in sync when the filter changes).
-      if (personId) {
-        loadGridFaceBoxes(personId, rows)
-      } else {
-        // Non-person scope: drop stale highlight boxes from the previous filter/search.
-        setGridFaceBoxes({})
-      }
     } catch (e) {
       console.error('Failed to load photos', e)
     } finally {
       setLoading(false)
     }
-  }, [loadGridFaceBoxes])
+  }, [])
 
   // Search face — full local: detect ALL faces in the query photo, dedup per photo
   const searchFace = useCallback(async (file: File): Promise<{ photos: Photo[]; facesDetected: number | null; matchedPersons: string[] }> => {
@@ -93,15 +74,6 @@ export function useLibrary() {
       width: h.faceBox?.width ?? null,
       height: h.faceBox?.height ?? null,
     }))
-    // Highlight the matched face on each hit (same rectangle the person filter
-    // uses) — the search hit already carries the box, no extra query needed.
-    const boxes: Record<string, FaceBox | null> = {}
-    for (const h of data.hits || []) {
-      if (h.faceBox && h.photoId) {
-        boxes[h.photoId] = { x1: h.faceBox.x1, y1: h.faceBox.y1, x2: h.faceBox.x2, y2: h.faceBox.y2 }
-      }
-    }
-    setGridFaceBoxes(boxes)
     return {
       photos,
       facesDetected: data.facesDetected ?? null,
@@ -135,8 +107,6 @@ export function useLibrary() {
     disks,
     photos,
     setPhotos,
-    gridFaceBoxes,
-    setGridFaceBoxes,
     loading,
     setLoading,
     driveStatus,
@@ -145,7 +115,6 @@ export function useLibrary() {
     loadFolders,
     loadPersons,
     loadPhotos,
-    loadGridFaceBoxes,
     searchFace,
   }
 }
