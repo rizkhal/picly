@@ -33,7 +33,10 @@ CREATE TABLE IF NOT EXISTS faces (
     y1 INTEGER NOT NULL,
     x2 INTEGER NOT NULL,
     y2 INTEGER NOT NULL,
-    embedding BLOB NOT NULL,           -- 512 float32 LE
+    embedding BLOB,                     -- 512 float32 LE; NULL when below embedding threshold (very_low quality)
+    face_quality TEXT NOT NULL DEFAULT 'medium',  -- high | medium | low | very_low
+    low_quality INTEGER NOT NULL DEFAULT 0,       -- 1 for very_low (below embedding threshold)
+    quality_score REAL NOT NULL DEFAULT 0.5,      -- 0..1 continuous quality
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

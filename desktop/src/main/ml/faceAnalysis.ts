@@ -1,9 +1,9 @@
 import { buffaloL, type ModelConfig } from './config'
-import { decodeRgb, letterbox, warpAffine } from './image'
+import { cropRegion, decodeRgb, letterbox, warpAffine } from './image'
 import { umeyama } from './matrix'
 import { ArcFaceEmbedder } from './arcface'
 import { ScrfdDetector } from './scrfd'
-import type { DetectedFace, RgbImage } from './types'
+import type { DetectedFace, FaceQuality, RgbImage } from './types'
 
 /** ArcFace alignment template (arcface_dst from insightface/utils/face_align.py). */
 export const ARCFACE_DST: number[][] = [
@@ -14,10 +14,106 @@ export const ARCFACE_DST: number[][] = [
   [70.7299, 92.2041],
 ]
 
+/**
+ * Two-stage detection, mirroring insightface's FaceAnalysis small-face
+ * refinement (tiled re-detection):
+ *
+ *   ORIGINAL PHOTO
+ *        │
+ *        ▼
+ *   SCRFD-10GF @ 640          <- pass 1, full image (fullDetThresh)
+ *        │
+ *   ┌────┴────────────────┐
+ *   │                     │
+ * faces ok          tiny OR crowded OR low-conf
+ *   │                     │
+ *   ▼                     ▼
+ *  accept          2×2 tiles, 20% overlap (tileDetThresh)
+ *                         │
+ *                   still tiny?
+ *                         │
+ *                         ▼
+ *                   3×3 tiles, 20% overlap
+ *                         │
+ *                         ▼
+ *                   merge + NMS (cross-scale duplicate suppression)
+ *                         │
+ *                         ▼
+ *                  QUALITY GATE (size + score + landmark sanity)
+ *                         │
+ *                         ▼
+ *                   Buffalo_L (embed aligned faces)
+ *
+ * Design notes (from psdkp-sample-tile benchmarks):
+ * - Full & tile detectors have SEPARATE thresholds: full can stay permissive,
+ *   tiles run at a higher bar so upscaled background does not turn into
+ *   false positives (Failure A: DSC02048 87 detections for ~30 faces).
+ * - Tiling is triggered not only by tiny bboxes but also by crowded scenes
+ *   (Failure B: DSC02166 got 0 tile runs because every face was >= 80px).
+ * - Tiles overlap 20% so faces straddling a tile border are fully visible in
+ *   at least one tile (fewer cut-in-half misses/duplicates).
+ * - Every candidate passes a quality gate before Buffalo_L: bbox size,
+ *   score, and landmark sanity. Weak/tiny candidates never reach recognition.
+ *
+ * All knobs are configurable via FaceAnalysisOptions for controlled tuning.
+ */
+export const RE_DETECT_FACE_PX = 80
+export const NMS_IOU = 0.3
+
 export interface FaceAnalysisOptions {
   modelsDir?: string
   detSize?: number
-  detThresh?: number
+  /** Confidence threshold for the full-image pass (default 0.5). */
+  fullDetThresh?: number
+  /** Confidence threshold for tile re-detection (default 0.5; tune 0.35-0.6). */
+  tileDetThresh?: number
+  /** Faces smaller than this (px, original image) trigger tile refinement. */
+  reDetectFacePx?: number
+  /** IoU for cross-stage duplicate suppression (default 0.3; try 0.4/0.5). */
+  nmsIou?: number
+  /** Overlap fraction between adjacent tiles (default 0.2). */
+  tileOverlap?: number
+  /** Minimum face bbox side to pass the quality gate (default 16px). */
+  minFacePx?: number
+  /** Minimum detection score to pass the quality gate (default 0.3). */
+  minFaceScore?: number
+  /** Skip ArcFace embedding (detection-only, for tuning experiments). */
+  embed?: boolean
+  /** Also embed faces below the embedding threshold (low/very_low). Default false. */
+  embedLow?: boolean
+  /** Log per-stage detection details to console (tuning/debug). */
+  debugLog?: boolean
+}
+
+interface RawDet {
+  bboxes: number[][]
+  scores: number[]
+  kpss: number[][][]
+}
+
+export interface DetectTimings {
+  fullImageMs: number
+  tileMs: number
+  embedMs: number
+  tileRuns: number
+}
+
+/** Per-stage detection counts for the RAW -> NMS -> QUALITY -> FINAL report. */
+export interface DetectBreakdown {
+  /** Detections from the full-image pass (pre-NMS). */
+  rawFull: number
+  /** Detections from all tile passes combined (pre-NMS). */
+  rawTile: number
+  /** Kept after cross-source NMS. */
+  afterNms: number
+  /** Kept after the quality gate. */
+  afterGate: number
+  /** Faces actually embedded/returned. */
+  final: number
+  /** Gate rejections by reason. */
+  rejectedTiny: number
+  rejectedScore: number
+  rejectedKps: number
 }
 
 /**
@@ -30,33 +126,76 @@ export class FaceAnalysis {
   private embedder: ArcFaceEmbedder
   private config: ModelConfig
   private detSize: number
-  private detThresh: number
+  private fullDetThresh: number
+  private tileDetThresh: number
+  private reDetectFacePx: number
+  private nmsIou: number
+  private tileOverlap: number
+  private minFacePx: number
+  private minFaceScore: number
+  private embed: boolean
+  private embedLow: boolean
+  /** Timing of the last detectFromImage call (per-stage breakdown). */
+  lastTimings: DetectTimings | null = null
+  /** Detection counts of the last detectFromImage call. */
+  lastBreakdown: DetectBreakdown | null = null
+  private debugLog: boolean = false
 
   private constructor(
     detector: ScrfdDetector,
     embedder: ArcFaceEmbedder,
     config: ModelConfig,
     detSize: number,
-    detThresh: number,
+    fullDetThresh: number,
+    tileDetThresh: number,
+    reDetectFacePx: number,
+    nmsIou: number,
+    tileOverlap: number,
+    minFacePx: number,
+    minFaceScore: number,
+    embed: boolean,
+    embedLow: boolean,
+    debugLog: boolean,
   ) {
     this.detector = detector
     this.embedder = embedder
     this.config = config
     this.detSize = detSize
-    this.detThresh = detThresh
+    this.fullDetThresh = fullDetThresh
+    this.tileDetThresh = tileDetThresh
+    this.reDetectFacePx = reDetectFacePx
+    this.nmsIou = nmsIou
+    this.tileOverlap = tileOverlap
+    this.minFacePx = minFacePx
+    this.minFaceScore = minFaceScore
+    this.embed = embed
+    this.embedLow = embedLow ?? false
+    this.debugLog = debugLog ?? false
   }
 
   static async create(options: FaceAnalysisOptions = {}): Promise<FaceAnalysis> {
-    const config = buffaloL(options.modelsDir ?? process.env.PICLY_MODELS_DIR)
+    const { debugLog, ...rest } = options
+    const config = buffaloL(rest.modelsDir ?? process.env.PICLY_MODELS_DIR)
     const detector = await ScrfdDetector.create(config)
     const embedder = await ArcFaceEmbedder.create(config)
-    return new FaceAnalysis(
+    const instance = new FaceAnalysis(
       detector,
       embedder,
       config,
-      options.detSize ?? 640,
-      options.detThresh ?? 0.5,
+      rest.detSize ?? 640,
+      rest.fullDetThresh ?? config.detThresh,
+      rest.tileDetThresh ?? config.detThresh,
+      rest.reDetectFacePx ?? RE_DETECT_FACE_PX,
+      rest.nmsIou ?? NMS_IOU,
+      rest.tileOverlap ?? 0.2,
+      rest.minFacePx ?? 16,
+      rest.minFaceScore ?? 0.3,
+      rest.embed ?? true,
+      rest.embedLow ?? false,
+      debugLog ?? false,
     )
+    instance.debugLog = debugLog ?? false
+    return instance
   }
 
   async detect(imagePath: string): Promise<DetectedFace[]> {
@@ -64,26 +203,295 @@ export class FaceAnalysis {
     return this.detectFromImage(img)
   }
 
-  async detectFromImage(img: RgbImage): Promise<DetectedFace[]> {
-    const { resized, detScale } = letterbox(img, this.detSize)
-    const { bboxes, scores, kpss } = await this.detector.detect(
-      resized,
-      this.detSize,
-      this.detThresh,
-      detScale,
-    )
+  /** Run SCRFD once over `img`, coords in img-local space. */
+  private async runDetector(img: RgbImage, detSize: number, detThresh: number): Promise<RawDet> {
+    const { resized, detScale } = letterbox(img, detSize)
+    const res = await this.detector.detect(resized, detSize, detThresh, detScale)
+    return { bboxes: res.bboxes, scores: res.scores, kpss: res.kpss }
+  }
 
+  /**
+   * Tile the FULL image into an n×n grid with `tileOverlap` overlap and run
+   * SCRFD on each tile at `detThresh`. Tile width = w / (n - (n-1)*overlap),
+   * so consecutive tiles share exactly `overlap` of their width/height.
+   * Returns detections with coords mapped back to ORIGINAL image space.
+   */
+  private async detectTiled(img: RgbImage, n: number, detThresh: number): Promise<RawDet> {
+    const w = img.width
+    const h = img.height
+    const r = this.tileOverlap
+    const tileW = w / (n - (n - 1) * r)
+    const tileH = h / (n - (n - 1) * r)
+    const out: RawDet = { bboxes: [], scores: [], kpss: [] }
+    for (let ty = 0; ty < n; ty++) {
+      for (let tx = 0; tx < n; tx++) {
+        const bx1 = Math.floor(tx * (1 - r) * tileW)
+        const by1 = Math.floor(ty * (1 - r) * tileH)
+        const bx2 = tx === n - 1 ? w : Math.min(w, Math.ceil(bx1 + tileW))
+        const by2 = ty === n - 1 ? h : Math.min(h, Math.ceil(by1 + tileH))
+        const tile = cropRegion(img, [bx1, by1, bx2, by2])
+        const det = await this.runDetector(tile, this.detSize, detThresh)
+        for (let i = 0; i < det.bboxes.length; i++) {
+          out.bboxes.push([bx1 + det.bboxes[i][0], by1 + det.bboxes[i][1], bx1 + det.bboxes[i][2], by1 + det.bboxes[i][3]])
+          out.scores.push(det.scores[i])
+          out.kpss.push(det.kpss[i].map(([x, y]) => [bx1 + x, by1 + y]))
+        }
+      }
+    }
+    return out
+  }
+
+  /**
+   * Decide whether to tile and at what grid, from pass-1 results.
+   * Tiles run when faces are tiny (< reDetectFacePx) OR the scene is crowded
+   * (many faces — group photos hide small faces from the full pass even when
+   * the detected ones are large). A scene with no faces skips tiling entirely.
+   */
+  private planTiling(img: RgbImage, pass1: RawDet): 0 | 2 {
+    const nFaces = pass1.bboxes.length
+    if (nFaces === 0) return 0
+    const hasTiny = pass1.bboxes.some((b) => b[2] - b[0] < this.reDetectFacePx)
+    const areaMpx = (img.width * img.height) / 1e6
+    const crowded = nFaces >= 6 || (nFaces >= 3 && areaMpx <= 4)
+    return hasTiny || crowded ? 2 : 0
+  }
+
+  /** After 2×2 tiles, refine to 3×3 only while genuinely tiny faces remain. */
+  private shouldRefine(merged: RawDet): boolean {
+    return merged.bboxes.some((b) => b[2] - b[0] < this.reDetectFacePx)
+  }
+
+  /**
+   * Landmark sanity for the quality gate. Conservative on purpose: we do NOT
+   * reject profile/angled faces, only geometrically impossible ones (non-finite
+   * points, landmarks far outside the bbox). Small faces legitimately have
+   * closely-spaced eyes, so eye distance is NOT used as a hard rejection —
+   * benchmark showed it wrongly dropped real small faces in crowded scenes.
+   */
+  private static kpsValid(bbox: number[], kps: number[][]): boolean {
+    if (!kps || kps.length !== 5) return false
+    const [x1, y1, x2, y2] = bbox
+    const bw = Math.max(1, x2 - x1)
+    const bh = Math.max(1, y2 - y1)
+    const pad = 0.9 // landmarks may sit just outside the tight bbox
+    for (const p of kps) {
+      if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return false
+      if (p[0] < x1 - pad * bw || p[0] > x2 + pad * bw) return false
+      if (p[1] < y1 - pad * bh || p[1] > y2 + pad * bh) return false
+    }
+    // Proportional eye-distance sanity: a real face always has eyes spanning
+    // a meaningful fraction of its box. Proportional (not absolute) so small
+    // faces are not wrongly rejected.
+    const eyeDist = Math.hypot(kps[0][0] - kps[1][0], kps[0][1] - kps[1][1])
+    if (eyeDist < 0.04 * Math.min(bw, bh)) return false
+    return true
+  }
+
+  /** Quality gate: tiny/weak/implausible candidates never reach recognition. */
+  private gateReason(bbox: number[], score: number, kps: number[][]): 'tiny' | 'score' | 'kps' | null {
+    const bw = bbox[2] - bbox[0]
+    const bh = bbox[3] - bbox[1]
+    if (Math.min(bw, bh) < this.minFacePx) return 'tiny'
+    if (score < this.minFaceScore) return 'score'
+    if (!FaceAnalysis.kpsValid(bbox, kps)) return 'kps'
+    return null
+  }
+
+  /**
+   * Continuous quality score 0..1 for a detection. Combines detection
+   * confidence, landmark eye-distance (proportional), and bbox size — NOT size
+   * alone (a 40px sharp face can outrank a blurry 90px one).
+   */
+  private qualityScore(bbox: number[], score: number, kps: number[][]): number {
+    const bw = bbox[2] - bbox[0]
+    const bh = bbox[3] - bbox[1]
+    const side = Math.max(bw, bh)
+    // Size component (0..1): 0 at 0px, saturates ~120px.
+    const sizeComp = Math.min(1, side / 120)
+    // Eye-distance component (0..1): proportional to bbox, saturates ~0.3.
+    const eyeDist = Math.hypot(kps[0][0] - kps[1][0], kps[0][1] - kps[1][1])
+    const eyeComp = Math.min(1, eyeDist / Math.max(1, 0.3 * Math.max(bw, bh)))
+    // Confidence component (0..1): det score from 0.3..0.9.
+    const confComp = Math.min(1, Math.max(0, (score - 0.3) / 0.6))
+    // Weights: size matters most, then landmarks, then confidence.
+    return Math.min(1, 0.45 * sizeComp + 0.35 * eyeComp + 0.2 * confComp)
+  }
+
+  /**
+   * Quality tier from bbox size + quality score. Tiers are configurable via
+   * quality thresholds below; the mapping is: size bands first (high >= 64px,
+   * medium 32-64, low 20-32, very_low < 20) then score-based promotion.
+   */
+  private classifyQuality(bbox: number[], score: number, kps: number[][]): { quality: FaceQuality; qualityScore: number } {
+    const side = Math.max(bbox[2] - bbox[0], bbox[3] - bbox[1])
+    const q = this.qualityScore(bbox, score, kps)
+    let quality: FaceQuality
+    if (side >= 64) quality = q >= 0.5 ? 'high' : 'medium'
+    else if (side >= 32) quality = 'medium'
+    else if (side >= 20) quality = q >= 0.45 ? 'low' : 'very_low'
+    else quality = 'very_low'
+    return { quality, qualityScore: q }
+  }
+
+  /** Greedy NMS across all detections (dedup tiles + pass-1 overlap). */
+  private nmsAll(dets: RawDet[]): RawDet {
+    const allB: number[][] = []
+    const allS: number[] = []
+    const allK: number[][][] = []
+    for (const d of dets) {
+      for (let i = 0; i < d.bboxes.length; i++) {
+        allB.push(d.bboxes[i])
+        allS.push(d.scores[i])
+        allK.push(d.kpss[i])
+      }
+    }
+    const order = allS.map((_, i) => i).sort((a, b) => allS[b] - allS[a])
+    const keep: number[] = []
+    for (let i = 0; i < order.length; i++) {
+      const idx = order[i]
+      let dup = false
+      for (const k of keep) {
+        const a = allB[k]
+        const b = allB[idx]
+        const ix1 = Math.max(a[0], b[0])
+        const iy1 = Math.max(a[1], b[1])
+        const ix2 = Math.min(a[2], b[2])
+        const iy2 = Math.min(a[3], b[3])
+        const iw = Math.max(0, ix2 - ix1)
+        const ih = Math.max(0, iy2 - iy1)
+        const inter = iw * ih
+        const union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+        const iou = union > 0 ? inter / union : 0
+        if (iou > this.nmsIou) { dup = true; break }
+      }
+      if (!dup) keep.push(idx)
+    }
+    const out: RawDet = { bboxes: [], scores: [], kpss: [] }
+    for (const k of keep) {
+      out.bboxes.push(allB[k])
+      out.scores.push(allS[k])
+      out.kpss.push(allK[k])
+    }
+    return out
+  }
+
+  /** Embed an aligned face from a detection (warp by kps, ArcFace, L2). */
+  private async embedFace(img: RgbImage, bbox: [number, number, number, number], kps: number[][]): Promise<Float32Array> {
+    const M = umeyama(kps, ARCFACE_DST)
+    const aimg = warpAffine(img, M, this.config.arcInputSize)
+    const feat = await this.embedder.getFeat(aimg)
+    return this.embedder.l2Normalize(feat)
+  }
+
+  async detectFromImage(img: RgbImage): Promise<DetectedFace[]> {
+    const t0 = Date.now()
+
+    // ---- Pass 1: full-image detect at detSize (640) ----
+    const pass1 = await this.runDetector(img, this.detSize, this.fullDetThresh)
+    const t1 = Date.now()
+
+    // ---- Pass 2/3: adaptive tiles over the whole image ----
+    let tiled2: RawDet = { bboxes: [], scores: [], kpss: [] }
+    let tiled3: RawDet = { bboxes: [], scores: [], kpss: [] }
+    let tileRuns = 0
+    if (this.planTiling(img, pass1) === 2) {
+      tiled2 = await this.detectTiled(img, 2, this.tileDetThresh)
+      tileRuns += 4
+    }
+    const t2 = Date.now()
+    const merged12 = this.nmsAll([pass1, tiled2])
+    if (this.shouldRefine(merged12)) {
+      tiled3 = await this.detectTiled(img, 3, this.tileDetThresh)
+      tileRuns += 9
+    }
+    const t3 = Date.now()
+
+    // ---- Merge + cross-source NMS ----
+    const merged = this.nmsAll([pass1, tiled2, tiled3])
+
+    if (this.debugLog) {
+      const fmt = (d: RawDet) => d.bboxes.map((b, i) => `[${b.map((v) => Math.round(v)).join(',')} s=${d.scores[i].toFixed(2)} w=${Math.round(b[2] - b[0])}]`).join(' ')
+      console.log(`[detect] pass1(${pass1.bboxes.length}): ${fmt(pass1)}`)
+      console.log(`[detect] tiles(${tiled2.bboxes.length}+${tiled3.bboxes.length}): ${fmt(tiled2)}${tiled3.bboxes.length ? ' ' + fmt(tiled3) : ''}`)
+      console.log(`[detect] afterNMS(${merged.bboxes.length}): ${fmt(merged)}`)
+      // Show which kept faces suppressed near-duplicate candidates (dup evidence).
+      for (let k = 0; k < merged.bboxes.length; k++) {
+        const kb = merged.bboxes[k]
+        const dups = [...pass1.bboxes, ...tiled2.bboxes, ...tiled3.bboxes]
+          .map((b, i) => ({ b, src: i < pass1.bboxes.length ? 'p1' : i < pass1.bboxes.length + tiled2.bboxes.length ? 't2' : 't3' }))
+          .filter(({ b }) => {
+            const ix1 = Math.max(kb[0], b[0]); const iy1 = Math.max(kb[1], b[1])
+            const ix2 = Math.min(kb[2], b[2]); const iy2 = Math.min(kb[3], b[3])
+            const iw = Math.max(0, ix2 - ix1); const ih = Math.max(0, iy2 - iy1)
+            const inter = iw * ih
+            const union = (kb[2] - kb[0]) * (kb[3] - kb[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+            return union > 0 && inter / union > this.nmsIou
+          })
+        if (dups.length > 1) {
+          console.log(`[detect] keep #${k} ${kb.map((v) => Math.round(v)).join(',')} suppressed ${dups.length - 1}: ${dups.map((d) => `${d.src}[${d.b.map((v) => Math.round(v)).join(',')}]`).join(' ')}`)
+        }
+      }
+    }
+
+    // ---- Quality gate before recognition ----
+    // Stage 1: hard rejections — tiny (< minFacePx), weak score, or
+    // geometrically impossible landmarks. These are NOT faces we want in UI.
+    let rejectedTiny = 0
+    let rejectedScore = 0
+    let rejectedKps = 0
+    const accepted: Array<{ bbox: [number, number, number, number]; score: number; kps: number[][] }> = []
+    for (let i = 0; i < merged.bboxes.length; i++) {
+      const bbox = merged.bboxes[i] as [number, number, number, number]
+      const score = merged.scores[i]
+      const kps = merged.kpss[i]
+      const reason = this.gateReason(bbox, score, kps)
+      if (reason === 'tiny') { rejectedTiny++; continue }
+      if (reason === 'score') { rejectedScore++; continue }
+      if (reason === 'kps') { rejectedKps++; continue }
+      accepted.push({ bbox, score, kps })
+    }
+    const t3b = Date.now()
+
+    // Stage 2: quality classification + conditional embedding.
+    // Every accepted detection gets a quality tier; faces below the embedding
+    // threshold (very_low) keep embedding null (skipped) unless embedLow is on.
     const faces: DetectedFace[] = []
-    for (let i = 0; i < bboxes.length; i++) {
-      const M = umeyama(kpss[i], ARCFACE_DST)
-      const aimg = warpAffine(img, M, this.config.arcInputSize)
-      const feat = await this.embedder.getFeat(aimg)
+    const qTiers = { high: 0, medium: 0, low: 0, very_low: 0 }
+    for (const f of accepted) {
+      const { quality, qualityScore } = this.classifyQuality(f.bbox, f.score, f.kps)
+      qTiers[quality] += 1
+      const shouldEmbed = this.embed && (quality !== 'very_low' || this.embedLow)
       faces.push({
-        bbox: bboxes[i] as [number, number, number, number],
-        detScore: scores[i],
-        kps: kpss[i],
-        embedding: this.embedder.l2Normalize(feat),
+        bbox: f.bbox,
+        detScore: f.score,
+        kps: f.kps,
+        embedding: shouldEmbed ? await this.embedFace(img, f.bbox, f.kps) : null,
+        quality,
+        qualityScore,
+        lowQuality: quality === 'very_low',
       })
+    }
+    const t4 = Date.now()
+
+    if (this.debugLog) {
+      console.log(`[detect] quality tiers: high=${qTiers.high} medium=${qTiers.medium} low=${qTiers.low} very_low=${qTiers.very_low}  embedded=${faces.filter((f) => f.embedding).length}`)
+    }
+
+    this.lastTimings = {
+      fullImageMs: t1 - t0,
+      tileMs: (t2 - t1) + (t3 - t2),
+      embedMs: t4 - t3b,
+      tileRuns,
+    }
+    this.lastBreakdown = {
+      rawFull: pass1.bboxes.length,
+      rawTile: tiled2.bboxes.length + tiled3.bboxes.length,
+      afterNms: merged.bboxes.length,
+      afterGate: faces.length,
+      final: faces.length,
+      rejectedTiny,
+      rejectedScore,
+      rejectedKps,
     }
     return faces
   }

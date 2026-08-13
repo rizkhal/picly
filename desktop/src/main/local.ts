@@ -119,11 +119,11 @@ export async function searchPhoto(services: LocalServices, photoPath: string, li
   const analysis = await services.getAnalysis()
   const img = await decodeRgb(photoPath)
   const faces = await analysis.detectFromImage(img)
-  if (faces.length === 0) return { facesDetected: 0, hits: [] }
-  const hits = services.store.searchFaces(
-    faces.map((f) => f.embedding),
-    limit,
-  )
+  // Only faces with an embedding can drive search (very_low-quality faces have
+  // embedding null and are skipped — they're detections, not recognition).
+  const embeddings = faces.map((f) => f.embedding).filter((e): e is Float32Array => e !== null)
+  if (embeddings.length === 0) return { facesDetected: faces.length, hits: [] }
+  const hits = services.store.searchFaces(embeddings, limit)
   return { facesDetected: faces.length, hits: hits.map(toHitView) }
 }
 

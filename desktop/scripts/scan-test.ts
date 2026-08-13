@@ -82,7 +82,15 @@ async function main(): Promise<void> {
       pass = false
       continue
     }
-    const hits = store.searchFaces(qFaces[0].embedding, 5)
+    // Skip query faces without an embedding (very_low quality) — they can't
+    // drive search (embedding is null now, see DetectedFace).
+    const qFace = qFaces.find((f) => f.embedding !== null)
+    if (!qFace || !qFace.embedding) {
+      console.log(`${q}: NO EMBEDDABLE FACE`)
+      pass = false
+      continue
+    }
+    const hits = store.searchFaces(qFace.embedding, 5)
     const top1Self = hits[0]?.path === qPath
     const queryPerson = hits[0]?.personId
     const samePerson = hits.every((h) => h.personId === queryPerson)

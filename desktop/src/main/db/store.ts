@@ -4,6 +4,21 @@ import { readdirSync, unlinkSync } from 'node:fs'
 import path from 'node:path'
 import { SCHEMA } from './schema'
 import { blobToEmbedding, cosine, embeddingToBlob } from './vec'
+import type { FaceQuality } from '../ml/types'
+
+/**
+ * Lightweight migration for existing DBs: CREATE TABLE IF NOT EXISTS won't add
+ * new columns to a table that already exists, so older databases (created
+ * before face_quality columns) need ALTER TABLE. Idempotent + additive only.
+ */
+function migrate(db: Database.Database): void {
+  const cols = new Set(
+    (db.prepare(`PRAGMA table_info(faces)`).all() as Array<{ name: string }>).map((c) => c.name),
+  )
+  if (!cols.has('face_quality')) db.exec(`ALTER TABLE faces ADD COLUMN face_quality TEXT NOT NULL DEFAULT 'medium'`)
+  if (!cols.has('low_quality')) db.exec(`ALTER TABLE faces ADD COLUMN low_quality INTEGER NOT NULL DEFAULT 0`)
+  if (!cols.has('quality_score')) db.exec(`ALTER TABLE faces ADD COLUMN quality_score REAL NOT NULL DEFAULT 0.5`)
+}
 
 export const CLUSTER_MATCH_THRESHOLD = 0.5
 export const SEARCH_MIN_SIM = 0.5
@@ -14,6 +29,13 @@ export const SEARCH_MIN_SIM = 0.5
  * the face matched a cluster with sim >= CLUSTER_MATCH_THRESHOLD while also
  * being closer to ANOTHER cluster, we merge into the closest one instead of
  * seeding a duplicate cluster (prevents the snowball over-split).
+ */
+
+/**
+ * Cosine threshold for joining a face to an existing person cluster
+ * (centroid similarity, see matchPerson). Tuned on LFW: intra-identity sim
+ * is >= 0.62 while inter-identity is <= 0.14, so 0.5 sits safely in between
+ * (0.3 over-merges — a 528-photo blob; 0.6 over-splits small clusters).
  */
 
 export interface StoreOptions {
@@ -48,7 +70,14 @@ export interface AddFaceInput {
   y1: number
   x2: number
   y2: number
-  embedding: Float32Array
+  /** Embedding can be NULL for very_low-quality faces (embedding skipped). */
+  embedding: Float32Array | null
+  /** Quality tier from the detector (high | medium | low | very_low). */
+  faceQuality?: FaceQuality
+  /** 0..1 continuous quality score. */
+  qualityScore?: number
+  /** true for very_low tier. */
+  lowQuality?: boolean
 }
 
 export interface PersonSummary {
@@ -106,6 +135,7 @@ export class PhotoStore {
     db.pragma('journal_mode = WAL')
     db.pragma('foreign_keys = ON')
     db.exec(SCHEMA)
+    migrate(db)
     return new PhotoStore(db, options)
   }
 
@@ -328,13 +358,14 @@ export class PhotoStore {
       .all(...ids) as Array<{ personId: string; faceId: string; photoPath: string | null }>
   }
 
-  // ------------------------------------------- faces + clustering (mirror backend)
+  // ------------------------------------------- faces + clustering (incremental centroid)
 
   /**
    * Insert a face, matching/creating its person cluster (centroid cosine
-   * matching with running-average update, CLUSTER_MATCH_THRESHOLD = 0.6).
+   * matching with running-average update). Embedding NULL faces (very_low
+   * quality) are stored unassigned — they're detections, not recognition.
    */
-  addFaceWithCluster(face: AddFaceInput): { faceId: string; personId: string; isNewPerson: boolean } {
+  addFaceWithCluster(face: AddFaceInput): { faceId: string; personId: string | null; isNewPerson: boolean } {
     const run = this.db.transaction(() => this.clusterFace(face))
     const result = run()
     this.invalidate()
@@ -345,7 +376,7 @@ export class PhotoStore {
    * Insert a photo and all of its faces in ONE transaction (no orphan photo
    * or person on partial failure). Returns null when the path already exists.
    */
-  addPhotoWithFaces(photo: AddPhotoInput, faces: AddFaceInput[]): Array<{ faceId: string; personId: string; isNewPerson: boolean }> | null {
+  addPhotoWithFaces(photo: AddPhotoInput, faces: AddFaceInput[]): Array<{ faceId: string; personId: string | null; isNewPerson: boolean }> | null {
     const run = this.db.transaction(() => {
       if (!this.addPhoto(photo)) return null
       return faces.map((f) => this.clusterFace(f))
@@ -356,8 +387,22 @@ export class PhotoStore {
   }
 
   /** Clustering + inserts for one face. Must run inside a transaction. */
-  private clusterFace(face: AddFaceInput): { faceId: string; personId: string; isNewPerson: boolean } {
+  private clusterFace(face: AddFaceInput): { faceId: string; personId: string | null; isNewPerson: boolean } {
     const faceId = face.id ?? randomUUID()
+
+    // very_low-quality faces have no embedding (skipped at detection time) —
+    // store them unassigned. They remain visible as detections in the UI but
+    // never create or join a person cluster.
+    if (face.embedding === null) {
+      this.db
+        .prepare(
+          `INSERT INTO faces (id, photo_id, person_id, x1, y1, x2, y2, embedding, face_quality, low_quality, quality_score)
+           VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(faceId, face.photoId, face.x1, face.y1, face.x2, face.y2, null, face.faceQuality ?? 'medium', face.lowQuality ? 1 : 0, face.qualityScore ?? 0.5)
+      return { faceId, personId: null, isNewPerson: true }
+    }
+
     const match = this.matchPerson(face.embedding)
 
     let personId: string
@@ -397,8 +442,11 @@ export class PhotoStore {
     }
 
     this.db
-      .prepare(`INSERT INTO faces (id, photo_id, person_id, x1, y1, x2, y2, embedding) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(faceId, face.photoId, personId, face.x1, face.y1, face.x2, face.y2, embeddingToBlob(face.embedding))
+      .prepare(
+        `INSERT INTO faces (id, photo_id, person_id, x1, y1, x2, y2, embedding, face_quality, low_quality, quality_score)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(faceId, face.photoId, personId, face.x1, face.y1, face.x2, face.y2, embeddingToBlob(face.embedding), face.faceQuality ?? 'medium', face.lowQuality ? 1 : 0, face.qualityScore ?? 0.5)
     return { faceId, personId, isNewPerson }
   }
 

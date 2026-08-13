@@ -24,7 +24,7 @@ export class ScrfdDetector {
   private inputName = ''
   /** Output names in grouped order: scores(8,16,32), bbox(8,16,32), kps(8,16,32). */
   private orderedOutputs: string[] = []
-  private centerCache = new Map<string, number[][]>()
+  private centerCache = new LRUCache<string, number[][]>(10)
 
   private constructor(config: ModelConfig) {
     this.config = config
@@ -187,5 +187,28 @@ export class ScrfdDetector {
       remaining = next
     }
     return keep
+  }
+}
+
+/** Bounded LRU cache for small reusable data (e.g. anchor centers). */
+class LRUCache<K, V> {
+  private cache = new Map<K, V>()
+  constructor(private readonly maxSize: number) {}
+  get(key: K): V | undefined {
+    const hit = this.cache.get(key)
+    if (hit !== undefined) {
+      this.cache.delete(key)
+      this.cache.set(key, hit)
+      return hit
+    }
+    return undefined
+  }
+  set(key: K, val: V): void {
+    if (this.cache.has(key)) this.cache.delete(key)
+    else if (this.cache.size >= this.maxSize) {
+      const eldest = this.cache.keys().next().value!
+      this.cache.delete(eldest)
+    }
+    this.cache.set(key, val)
   }
 }

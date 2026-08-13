@@ -30,6 +30,8 @@ export async function makeFaceCrop(
   destPath: string,
   bbox: [number, number, number, number],
   size = FACE_CROP_SIZE,
+  width?: number | null,
+  height?: number | null,
 ): Promise<boolean> {
   try {
     const [x1, y1, x2, y2] = bbox
@@ -39,9 +41,8 @@ export async function makeFaceCrop(
     const bottom = Math.round(y2)
     const w = Math.max(1, right - left)
     const h = Math.max(1, bottom - top)
-    const meta = await sharp(srcPath, { failOn: 'none' }).metadata()
-    const iw = meta.width ?? 0
-    const ih = meta.height ?? 0
+    const iw = width ?? 0
+    const ih = height ?? 0
     const cw = Math.min(w, Math.max(0, iw - left))
     const ch = Math.min(h, Math.max(0, ih - top))
     // Guard against degenerate crops.

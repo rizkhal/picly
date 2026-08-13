@@ -165,6 +165,17 @@ export async function scanFolder(
       if (store.hasPhotoPath(filePath)) continue
       if (checkCancel()) break // stop before the expensive detect
 
+      // Read metadata once (cheap, used for thumb/crop bounds).
+      let width: number | null = null
+      let height: number | null = null
+      try {
+        const meta = await sharpMeta(filePath)
+        width = meta.width ?? null
+        height = meta.height ?? null
+      } catch {
+        // non-fatal
+      }
+
       const faces = await analysis.detect(filePath)
       if (faces.length === 0) continue
       if (checkCancel()) break // stop before writing thumb/crops
@@ -180,19 +191,9 @@ export async function scanFolder(
       const faceIds = faces.map(() => randomUUID())
       await Promise.all(
         faces.map((face, i) =>
-          makeFaceCrop(filePath, path.join(options.thumbDir, `${faceIds[i]}.jpg`), face.bbox, FACE_CROP_SIZE),
+          makeFaceCrop(filePath, path.join(options.thumbDir, `${faceIds[i]}.jpg`), face.bbox, FACE_CROP_SIZE, width, height),
         ),
       )
-
-      let width: number | null = null
-      let height: number | null = null
-      try {
-        const meta = await sharpMeta(filePath)
-        width = meta.width ?? null
-        height = meta.height ?? null
-      } catch {
-        // non-fatal
-      }
 
       const results = store.addPhotoWithFaces(
         { id: photoId, path: filePath, width, height, thumbPath, contentHash: hash },
@@ -204,6 +205,9 @@ export async function scanFolder(
           x2: Math.round(face.bbox[2]),
           y2: Math.round(face.bbox[3]),
           embedding: face.embedding,
+          faceQuality: face.quality,
+          qualityScore: face.qualityScore,
+          lowQuality: face.lowQuality,
         })),
       )
       if (results === null) continue // path appeared mid-scan; treat as duplicate

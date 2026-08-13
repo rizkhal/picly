@@ -2,12 +2,61 @@ import sharp from 'sharp'
 import type { RgbImage } from './types'
 
 /**
- * Decode an image file to raw RGB.
+ * Decode an image file to raw RGB at full resolution.
  * NOTE: sharp does not apply EXIF orientation by default, which matches
  * cv2.imread (the Python reference ignores orientation too).
  */
 export async function decodeRgb(filePath: string): Promise<RgbImage> {
   const { data, info } = await sharp(filePath, { failOn: 'none' })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  return { width: info.width, height: info.height, data }
+}
+
+/**
+ * Decode directly to a max dimension, then letterbox to `target` x `target`.
+ * Returns the final detection-ready image plus the scale factor needed to map
+ * coordinates back to the original resolution. This avoids loading a full
+ * 72 MB raw buffer for large photos.
+ */
+export async function decodeRgbLetterboxed(
+  filePath: string,
+  target: number,
+): Promise<{ image: RgbImage; detScale: number }> {
+  const meta = await sharp(filePath, { failOn: 'none' }).metadata()
+  const origW = meta.width ?? 0
+  const origH = meta.height ?? 0
+  if (origW === 0 || origH === 0) {
+    // Fallback: full decode then letterbox
+    const img = await decodeRgb(filePath)
+    const { resized, detScale } = letterbox(img, target)
+    return { image: resized, detScale }
+  }
+  const imRatio = origH / origW
+  const modelRatio = 1
+  let newW: number
+  let newH: number
+  if (imRatio > modelRatio) {
+    newH = target
+    newW = Math.floor(target / imRatio)
+  } else {
+    newW = target
+    newH = Math.floor(target * imRatio)
+  }
+  const detScale = newH / origH
+  const resized = await resizeBilinearFromSharp(filePath, newW, newH)
+  const padded = new Uint8Array(target * target * 3)
+  for (let y = 0; y < newH; y++) {
+    padded.set(resized.data.subarray(y * newW * 3, (y + 1) * newW * 3), y * target * 3)
+  }
+  return { image: { width: target, height: target, data: padded }, detScale }
+}
+
+/** Resize using sharp, then return raw RGB. Avoids loading full-res into memory. */
+async function resizeBilinearFromSharp(filePath: string, dstW: number, dstH: number): Promise<RgbImage> {
+  const { data, info } = await sharp(filePath, { failOn: 'none' })
+    .resize(dstW, dstH, { fit: 'cover', position: 'centre' })
     .removeAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true })
@@ -98,6 +147,68 @@ export function toNchwBlob(img: RgbImage, mean: number, invStd: number): Float32
     out[p + 2 * hw] = (data[i + 2] - mean) * invStd
   }
   return out
+}
+
+/**
+ * Crop an axis-aligned box from a raw image and upscale it with bilinear
+ * interpolation (border-replicate) to `size` x `size`. Used by the two-pass
+ * detector to re-detect small faces: the crop is upscaled so SCRFD sees the
+ * face at a larger scale, then boxes/landmarks are mapped back to original
+ * coordinates via the crop offset + scale.
+ */
+export function cropFace(src: RgbImage, box: [number, number, number, number], size: number): RgbImage {
+  const [x1, y1, x2, y2] = box
+  const sw = src.width
+  const sh = src.height
+  const sdata = src.data
+  const bw = Math.max(1, x2 - x1)
+  const bh = Math.max(1, y2 - y1)
+  const out = new Uint8Array(size * size * 3)
+  // Inverse map: dst (i,j) samples src (x1 + j * bw/size, y1 + i * bh/size)
+  for (let i = 0; i < size; i++) {
+    const sy = y1 + ((i + 0.5) * bh) / size - 0.5
+    const y0 = Math.max(0, Math.floor(sy))
+    const y1b = Math.min(sh - 1, y0 + 1)
+    const wy = sy - y0
+    for (let j = 0; j < size; j++) {
+      const sx = x1 + ((j + 0.5) * bw) / size - 0.5
+      const x0 = Math.max(0, Math.floor(sx))
+      const x1b = Math.min(sw - 1, x0 + 1)
+      const wx = sx - x0
+      const o = (i * size + j) * 3
+      for (let c = 0; c < 3; c++) {
+        const p00 = sdata[(y0 * sw + x0) * 3 + c]
+        const p10 = sdata[(y0 * sw + x1b) * 3 + c]
+        const p01 = sdata[(y1b * sw + x0) * 3 + c]
+        const p11 = sdata[(y1b * sw + x1b) * 3 + c]
+        const top = p00 + (p10 - p00) * wx
+        const bottom = p01 + (p11 - p01) * wx
+        out[o + c] = Math.round(top + (bottom - top) * wy)
+      }
+    }
+  }
+  return { width: size, height: size, data: out }
+}
+
+/**
+ * Crop an axis-aligned region from a raw image WITHOUT resizing (returns a
+ * sub-image). Used by the tiled detector to feed each tile through letterbox.
+ */
+export function cropRegion(src: RgbImage, box: [number, number, number, number]): RgbImage {
+  const x1 = Math.max(0, Math.floor(box[0]))
+  const y1 = Math.max(0, Math.floor(box[1]))
+  const x2 = Math.min(src.width, Math.ceil(box[2]))
+  const y2 = Math.min(src.height, Math.ceil(box[3]))
+  const w = Math.max(1, x2 - x1)
+  const h = Math.max(1, y2 - y1)
+  const out = new Uint8Array(w * h * 3)
+  const sdata = src.data
+  const sw = src.width
+  for (let y = 0; y < h; y++) {
+    const s = ((y1 + y) * sw + x1) * 3
+    out.set(sdata.subarray(s, s + w * 3), y * w * 3)
+  }
+  return { width: w, height: h, data: out }
 }
 
 /**
