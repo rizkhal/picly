@@ -71,7 +71,7 @@ export interface FaceAnalysisOptions {
   reDetectFacePx?: number
   /** IoU for cross-stage duplicate suppression (default 0.3; try 0.4/0.5). */
   nmsIou?: number
-  /** Overlap fraction between adjacent tiles (default 0.2). */
+  /** Overlap fraction between adjacent tiles (default 0 — benchmark showed overlap doesn't improve recall). */
   tileOverlap?: number
   /** Minimum face bbox side to pass the quality gate (default 16px). */
   minFacePx?: number
@@ -187,7 +187,7 @@ export class FaceAnalysis {
       rest.tileDetThresh ?? config.detThresh,
       rest.reDetectFacePx ?? RE_DETECT_FACE_PX,
       rest.nmsIou ?? NMS_IOU,
-      rest.tileOverlap ?? 0.2,
+      rest.tileOverlap ?? 0,
       rest.minFacePx ?? 16,
       rest.minFaceScore ?? 0.3,
       rest.embed ?? true,
