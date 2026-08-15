@@ -17,6 +17,7 @@ export default function App() {
   const {
     persons, personPreviews, folders, photos, setPhotos,
     loading, setLoading, driveStatus, scopeRef, noFaceCount,
+    showSingletons, toggleShowSingletons,
     loadFolders, loadPersons, loadPhotos, loadNoFacePhotos, loadNoFaceCount, searchFace,
   } = library
 
@@ -240,6 +241,8 @@ export default function App() {
             onCheckUpdate={() => checkForUpdate(false)}
             onOpenUpdate={openUpdatePage}
             onClose={() => setSettingsOpen(false)}
+            showSingletons={showSingletons}
+            onToggleShowSingletons={() => { toggleShowSingletons(); loadPersons() }}
           />
         ) : (
           <>

@@ -8,12 +8,9 @@ export function useLibrary() {
   const [folders, setFolders] = useState<Folder[]>([])
   const [photos, setPhotos] = useState<Photo[]>([])
   const [noFaceCount, setNoFaceCount] = useState(0)
+  const [showSingletons, setShowSingletons] = useState(false)
   const [loading, setLoading] = useState(false)
   const [driveStatus, setDriveStatus] = useState('Checking...')
-
-  // Track the current person/folder scope in a ref so the scan-completion
-  // refresh always reloads what the user is actually looking at, not what was
-  // selected when the scan started.
   const scopeRef = useRef<{ person: string | null; folder: string | null; noFaces: boolean }>({ person: null, folder: null, noFaces: false })
 
   // Load folders added via '+ Add folder' (local store)
@@ -30,7 +27,7 @@ export function useLibrary() {
 
   // Load persons (local store) + face crop previews (one representative face each)
   const loadPersons = useCallback(async () => {
-    const livePersons = await ipc.local.listPersons()
+    const livePersons = await ipc.local.listPersons(showSingletons)
     setPersons(livePersons)
     const previews: PersonPreview[] = []
     const ids = livePersons.map((p) => p.person_id)
@@ -41,9 +38,23 @@ export function useLibrary() {
       previews.push({ ...p, face_id: face?.face_id || undefined })
     }
     setPersonPreviews(previews)
+  }, [showSingletons])
+
+  // Persist the "show once-off persons" preference across restarts.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('showSingletons')
+      if (saved !== null) setShowSingletons(saved === '1')
+    } catch { /* ignore */ }
   }, [])
 
-  // Load photos for selected person, folder, disk, or all (local store)
+  const toggleShowSingletons = useCallback(() => {
+    setShowSingletons((prev) => {
+      const next = !prev
+      try { localStorage.setItem('showSingletons', next ? '1' : '0') } catch { /* ignore */ }
+      return next
+    })
+  }, [])
   const loadPhotos = useCallback(async (personId?: string | null, diskPath?: string | null, folderPath?: string | null) => {
     setLoading(true)
     try {
@@ -120,6 +131,8 @@ export function useLibrary() {
     photos,
     setPhotos,
     noFaceCount,
+    showSingletons,
+    toggleShowSingletons,
     loading,
     setLoading,
     driveStatus,

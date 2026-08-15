@@ -178,7 +178,7 @@ function registerLocalIpc() {
   ipcMain.handle('local:stats', () => getLocalServices().store.stats());
 
   ipcMain.handle('local:list-folders', () => getLocalServices().store.listFolders());
-  ipcMain.handle('local:list-persons', () => getLocalServices().store.listPersons());
+  ipcMain.handle('local:list-persons', (_e, showSingletons) => getLocalServices().store.listPersons(false, !!showSingletons));
   ipcMain.handle('local:list-photos', (_e, folderPath) => {
     const local = getLocalServices();
     const rows = require('../../dist-main/local.js').listPhotos(local, folderPath || undefined);

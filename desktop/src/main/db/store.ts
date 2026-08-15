@@ -81,6 +81,12 @@ export interface StoreOptions {
    * disable.
    */
   minAvgQuality?: number
+  /**
+   * Include single-photo/single-face persons (background guests, once-off
+   * appearances) in listPersons. Default false keeps the face filter focused on
+   * recurring identities and filters noise by the avg-quality gate alone.
+   */
+  showSingletons?: boolean
 }
 
 export interface AddPhotoInput {
@@ -147,12 +153,14 @@ export class PhotoStore {
   private readonly clusterLinkageThreshold: number
   private readonly thumbDir: string | null
   private readonly minAvgQuality: number
+  private readonly showSingletons: boolean
 
   private constructor(db: Database.Database, options: StoreOptions = {}) {
     this.db = db
     this.clusterLinkageThreshold = options.clusterLinkageThreshold ?? CLUSTER_LINKAGE_THRESHOLD
     this.thumbDir = options.thumbDir ?? null
     this.minAvgQuality = options.minAvgQuality ?? 0.30
+    this.showSingletons = options.showSingletons ?? false
     this.personSeq = (this.db.prepare('SELECT COUNT(*) AS n FROM persons').get() as { n: number }).n
   }
 
@@ -709,8 +717,12 @@ export class PhotoStore {
    *   - junk-blur clusters: avg eDifFIQA below minAvgQuality (e.g. a cluster of
    *     near-identical blurry crops like Person 126) — all-blur clusters are not
    *     trustworthy identities.
+   *
+   * showSingletons (default false) opts into displaying once-off persons too;
+   * the avg-quality gate always applies. With it off, a photo that is all
+   * singletons (e.g. a crowded group shot) shows only the recurring identities.
    */
-  listPersons(includeNoise = false): PersonSummary[] {
+  listPersons(includeNoise = false, showSingletons = this.showSingletons): PersonSummary[] {
     return this.db
       .prepare(
         `WITH sizes AS (
@@ -724,8 +736,8 @@ export class PhotoStore {
          SELECT id AS personId, name, photoCount, faceCount, avgQuality
          FROM sizes
          WHERE faceCount > 0
-           AND (${includeNoise ? '1=1' : `(faceCount >= 2 OR photoCount >= 2)
-             AND avgQuality >= ${this.minAvgQuality}`})
+           AND (${includeNoise ? '1=1' : `avgQuality >= ${this.minAvgQuality}
+             ${showSingletons ? '' : 'AND (faceCount >= 2 OR photoCount >= 2)'}`})
          ORDER BY photoCount DESC, created_at ASC`,
       )
       .all() as PersonSummary[]

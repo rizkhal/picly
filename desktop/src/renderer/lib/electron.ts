@@ -38,11 +38,11 @@ export const local = {
     }
   },
 
-  async listPersons(): Promise<Person[]> {
+  async listPersons(showSingletons?: boolean): Promise<Person[]> {
     const api = bridge()
     if (!api?.local?.listPersons) return []
     try {
-      const rows = await api.local.listPersons()
+      const rows = await api.local.listPersons(showSingletons)
       return (rows || [])
         .filter((p: any) => (p.photoCount ?? p.photo_count ?? 0) > 0)
         .map((p: any) => ({ person_id: p.personId || p.person_id, name: p.name, photo_count: p.photoCount ?? p.photo_count ?? 0 }))

@@ -30,7 +30,7 @@ contextBridge.exposeInMainWorld('electron', {
   local: {
     stats: () => ipcRenderer.invoke('local:stats'),
     listFolders: () => ipcRenderer.invoke('local:list-folders'),
-    listPersons: () => ipcRenderer.invoke('local:list-persons'),
+    listPersons: (showSingletons) => ipcRenderer.invoke('local:list-persons', showSingletons),
     listPhotos: (folderPath) => ipcRenderer.invoke('local:list-photos', folderPath),
     listPersonPhotos: (personId) => ipcRenderer.invoke('local:list-person-photos', personId),
     listPersonPreviews: (ids) => ipcRenderer.invoke('local:list-person-previews', ids),

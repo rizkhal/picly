@@ -11,6 +11,8 @@ type SettingsPageProps = {
   onCheckUpdate: () => void
   onOpenUpdate: () => void
   onClose: () => void
+  showSingletons: boolean
+  onToggleShowSingletons: () => void
 }
 
 type StoreStats = {
@@ -20,7 +22,7 @@ type StoreStats = {
   folders: number
 }
 
-export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, updateChecking, onCheckUpdate, onOpenUpdate, onClose }: SettingsPageProps) {
+export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, updateChecking, onCheckUpdate, onOpenUpdate, onClose, showSingletons, onToggleShowSingletons }: SettingsPageProps) {
   const [stats, setStats] = useState<StoreStats | null>(null)
   const [localModels, setLocalModels] = useState<LocalModels | null>(null)
 
@@ -74,6 +76,26 @@ export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, upd
         ) : (
           <div className="settings-row-hint">Memuat…</div>
         )}
+      </section>
+
+      {/* Wajah — face filter preferences */}
+      <section className="settings-section">
+        <div className="settings-section-title">Wajah</div>
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <div className="settings-row-label">Tampilkan person sekali muncul</div>
+            <div className="settings-row-hint">Foto ramai: person yang hanya muncul 1× juga ditampilkan di filter wajah (yang blur/kualitas rendah tetap disembunyikan).</div>
+          </div>
+          <button
+            className={`toggle-btn ${showSingletons ? 'on' : ''}`}
+            role="switch"
+            aria-checked={showSingletons}
+            onClick={onToggleShowSingletons}
+            title={showSingletons ? 'Nonaktifkan' : 'Aktifkan'}
+          >
+            <span className="toggle-knob" />
+          </button>
+        </div>
       </section>
 
       {/* Update */}
