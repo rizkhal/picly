@@ -5,9 +5,12 @@ import * as ipc from '../lib/electron'
 type ModalFace = { faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null }
 
 // --- Pinch-zoom / pan state for the modal photo preview ---
-// Transform applied to .photo-scaled: translate(tx,ty) scale(s) with origin top-left.
-// At s===1 we're unzoomed (tx/ty forced to 0). Panning is clamped so the image
-// never leaves the viewport (image bigger than container can't be dragged away).
+// The image renders at natural size, constrained to the stage width
+// (max-width: 100%). .photo-frame wraps exactly the image (width: fit-content,
+// no min-width) so face boxes in PERCENTAGES are pixel-accurate. The frame is
+// centered in the stage by flex; tall photos grow the stage and scroll.
+// Transform translate(tx,ty) scale(s) with origin top-left, s >= 1 (unzoomed
+// is s=1, tx/ty=0). Panning is clamped so the image never leaves the viewport.
 type ZoomState = { s: number; tx: number; ty: number }
 const ZOOM_MIN = 1
 const ZOOM_MAX = 10
@@ -18,8 +21,8 @@ function clampPan(z: ZoomState, el: HTMLElement | null, img: HTMLImageElement | 
   const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
   const cw = el.clientWidth
   const ch = el.clientHeight
-  const iw = img.naturalWidth * z.s
-  const ih = img.naturalHeight * z.s
+  const iw = img.clientWidth * z.s
+  const ih = img.clientHeight * z.s
   return {
     s: z.s,
     tx: clamp(z.tx, Math.min(0, cw - iw), Math.max(0, cw - iw)),
@@ -84,6 +87,11 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
     dragRef.current = null
   }, [photo.photo_id])
 
+  const resetZoom = () => {
+    setZoom({ s: ZOOM_MIN, tx: 0, ty: 0 })
+    dragRef.current = null
+  }
+
   // Native (non-passive) wheel listener so pinch-zoom can preventDefault.
   useEffect(() => {
     const el = scrollRef.current
@@ -138,10 +146,6 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
     dragRef.current = null
     setDragging(false)
   }
-  const resetZoom = () => {
-    setZoom({ s: ZOOM_MIN, tx: 0, ty: 0 })
-    dragRef.current = null
-  }
 
   // Faces (bbox + person) for the CURRENT photo — fetched when the photo or
   // the selected person filter changes. Used to draw the selected-person
@@ -165,7 +169,6 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
   const hasNext = nextIndex < photos.length
 
   // Keyboard navigation while the modal is open: arrows prev/next, Esc close.
-  // Only when the event target isn't an input/textarea.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
@@ -203,28 +206,30 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
               onDoubleClick={resetZoom}
               style={{ cursor: zoom.s > 1 ? (dragging ? 'grabbing' : 'grab') : undefined }}
             >
-              <div
-                className="photo-scaled"
-                style={{ transform: `translate(${zoom.tx}px, ${zoom.ty}px) scale(${zoom.s})` }}
-              >
-                <img
-                  ref={imgRef}
-                  className="modal-image"
-                  src={`picly://src/${photo.photo_id}.jpg`}
-                  alt=""
-                  draggable={false}
-                />
-                {faceBoxForPhoto && (
-                  <div
-                    className={`face-box${selectedPerson ? ' active' : ''}`}
-                    style={{
-                      left: `${(faceBoxForPhoto.x1 / (photo.width || 1)) * 100}%`,
-                      top: `${(faceBoxForPhoto.y1 / (photo.height || 1)) * 100}%`,
-                      width: `${((faceBoxForPhoto.x2 - faceBoxForPhoto.x1) / (photo.width || 1)) * 100}%`,
-                      height: `${((faceBoxForPhoto.y2 - faceBoxForPhoto.y1) / (photo.height || 1)) * 100}%`,
-                    }}
+              <div className="photo-stage-inner">
+                <div
+                  className="photo-frame"
+                  style={{ transform: `translate(${zoom.tx}px, ${zoom.ty}px) scale(${zoom.s})` }}
+                >
+                  <img
+                    ref={imgRef}
+                    className="modal-image"
+                    src={`picly://src/${photo.photo_id}.jpg`}
+                    alt=""
+                    draggable={false}
                   />
-                )}
+                  {faceBoxForPhoto && (
+                    <div
+                      className={`face-box${selectedPerson ? ' active' : ''}`}
+                      style={{
+                        left: `${(faceBoxForPhoto.x1 / (photo.width || 1)) * 100}%`,
+                        top: `${(faceBoxForPhoto.y1 / (photo.height || 1)) * 100}%`,
+                        width: `${((faceBoxForPhoto.x2 - faceBoxForPhoto.x1) / (photo.width || 1)) * 100}%`,
+                        height: `${((faceBoxForPhoto.y2 - faceBoxForPhoto.y1) / (photo.height || 1)) * 100}%`,
+                      }}
+                    />
+                  )}
+                </div>
               </div>
               {zoom.s > 1 && (
                 <button

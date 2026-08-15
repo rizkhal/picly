@@ -776,15 +776,26 @@ html, body, #root {
   touch-action: none; /* pinch handled by JS */
 }
 
-.photo-scaled {
+.modal-photo .photo-scroll {
+  min-height: 0;
+}
+
+.photo-stage-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  overflow: visible;
+}
+
+.photo-frame {
   position: relative;
   width: fit-content;
-  min-width: 100%;
   transform-origin: 0 0;
   will-change: transform;
 }
 
-.photo-scaled .modal-image {
+.photo-frame .modal-image {
   display: block;
   max-width: 100%;
   height: auto;
@@ -812,27 +823,23 @@ html, body, #root {
   background: rgba(0, 0, 0, 0.85);
 }
 
-/* In the modal viewer, let the image keep its natural aspect (no contain
-   letterboxing) so face-box percentages stay pixel-accurate; the scroll
-   container handles overflow instead of a fixed max-height. */
-.modal-photo .photo-scaled .modal-image {
-  width: auto;
-  max-width: 100%;
-  max-height: none;
-}
+/* The stage contains the image (fit scale applied via the .photo-frame
+   transform); .face-box uses RAW image coordinates so it must NOT inherit the
+   modal contain rule. */
 
-/* Face rectangle overlay — highlighted when it matches the selected person */
+/* Face rectangle overlay — orange like the rescan button (#f97316);
+   highlighted when it matches the selected person */
 .face-box {
   position: absolute;
-  border: 2px solid rgba(59, 130, 246, 0.75);
+  border: 2px solid rgba(249, 115, 22, 0.85);
   border-radius: 4px;
   pointer-events: none;
   box-sizing: border-box;
 }
 
 .face-box.active {
-  border-color: #ffd166;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 12px rgba(255, 209, 102, 0.5);
+  border-color: #fb923c;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 12px rgba(249, 115, 22, 0.55);
 }
 
 .modal-image {
