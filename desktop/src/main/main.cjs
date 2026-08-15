@@ -357,18 +357,31 @@ ipcMain.handle('get-api-base', () => API_BASE);
 ipcMain.handle('app:check-update', async () => {
   try {
     const res = await fetch(`${API_BASE}/app/update`, {
-      // Endpoint is public — manifest is not sensitive (see backend/src/update.ts)
+      // Endpoint is public ??? manifest is not sensitive (see backend/src/update.ts)
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return { available: false, error: `HTTP ${res.status}` };
     const body = await res.json();
-    // Endpoint returns { available, manifest: { version, url, notes } }
+    // Endpoint returns { available, manifest: { version, url, notes, models } }
     const manifest = body.manifest || body;
     const current = app.getVersion();
     const available = !!(manifest.version && manifest.version !== current);
-    return { available, current, latest: manifest.version || null, url: manifest.url || null, notes: manifest.notes || null };
+    return { available, current, latest: manifest.version || null, url: manifest.url || null, notes: manifest.notes || null, models: manifest.models || null };
   } catch (e) {
     return { available: false, error: String(e && e.message ? e.message : e) };
+  }
+});
+
+// The ML models actually installed on this device (basename of each ONNX file).
+// Lets Settings show "your models vs. latest" and detect a model-only mismatch
+// even when the app version matches (bundled models updated without a bump).
+ipcMain.handle('app:local-models', () => {
+  try {
+    const { localModels, defaultModelsDir } = require('../../dist-main/ml/config.js');
+    return localModels(defaultModelsDir());
+  } catch (e) {
+    console.error('local-models failed:', e);
+    return { detector: null, recognizer: null, quality: null };
   }
 });
 

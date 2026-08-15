@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { AuthStatus, UpdateInfo } from '../types'
+import type { AuthStatus, LocalModels, UpdateInfo } from '../types'
 import * as ipc from '../lib/electron'
 
 type SettingsPageProps = {
@@ -22,9 +22,11 @@ type StoreStats = {
 
 export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, updateChecking, onCheckUpdate, onOpenUpdate, onClose }: SettingsPageProps) {
   const [stats, setStats] = useState<StoreStats | null>(null)
+  const [localModels, setLocalModels] = useState<LocalModels | null>(null)
 
   useEffect(() => {
     ipc.local.stats().then((s: any) => setStats(s || null))
+    ipc.update.localModels().then((m) => setLocalModels(m))
   }, [])
 
   return (
@@ -96,6 +98,11 @@ export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, upd
                     : 'Aplikasi sudah versi terbaru.'
               )}
             </div>
+            {updateInfo?.available && updateInfo?.models && (
+              <div className="settings-row-hint">
+                Termasuk model baru: {[updateInfo.models.detector, updateInfo.models.recognizer, updateInfo.models.quality].filter(Boolean).join(', ')}
+              </div>
+            )}
           </div>
           <div className="settings-row-actions">
             {updateInfo?.available && updateInfo?.url && (
@@ -104,6 +111,25 @@ export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, upd
             <button className="btn" onClick={onCheckUpdate} disabled={updateChecking}>
               {updateChecking ? 'Mengecek…' : 'Cek update'}
             </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Model (ML) — bundled with the app; updated via new releases */}
+      <section className="settings-section">
+        <div className="settings-section-title">Model (ML)</div>
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <div className="settings-row-label">Deteksi & pengenalan wajah</div>
+            <div className="settings-row-hint">SCRFD + ArcFace (buffalo_l) + eDifFIQA — berjalan sepenuhnya di perangkat.</div>
+            <div className="settings-row-hint">
+              Terpasang: {localModels ? [localModels.detector, localModels.recognizer, localModels.quality].filter(Boolean).join(', ') || 'tidak ditemukan' : 'Memuat…'}
+            </div>
+            {updateInfo?.models && (
+              <div className="settings-row-hint">
+                Terbaru: {[updateInfo.models.detector, updateInfo.models.recognizer, updateInfo.models.quality].filter(Boolean).join(', ')}
+              </div>
+            )}
           </div>
         </div>
       </section>

@@ -12,6 +12,11 @@ export function UpdateBanner({ info, onOpen, onDismiss }: UpdateBannerProps) {
       <div style={{ flex: 1 }}>
         <strong>Update tersedia — Picly {info.latest}</strong>
         {info.current && <span style={{ opacity: 0.7, marginLeft: 8 }}>(kamu punya {info.current})</span>}
+        {info.models && (
+          <div style={{ opacity: 0.7, marginTop: 2, fontSize: 11 }}>
+            Termasuk model ML baru ({[info.models.detector, info.models.recognizer, info.models.quality].filter(Boolean).join(', ')})
+          </div>
+        )}
       </div>
       <button
         onClick={onOpen}

@@ -51,5 +51,14 @@ export type UpdateInfo = {
   latest?: string | null
   url?: string | null
   notes?: string[] | null
+  /** Latest ML models bundled with this release (detector/recognizer/quality). */
+  models?: { detector?: string; recognizer?: string; quality?: string } | null
   error?: string
+}
+
+/** The ML models actually installed on this device (basename of each ONNX). */
+export type LocalModels = {
+  detector: string | null
+  recognizer: string | null
+  quality: string | null
 }

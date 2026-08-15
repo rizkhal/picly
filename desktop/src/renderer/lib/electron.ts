@@ -1,4 +1,4 @@
-import type { AuthStatus, Folder, Person, Photo, UpdateInfo } from '../types'
+import type { AuthStatus, Folder, LocalModels, Person, Photo, UpdateInfo } from '../types'
 
 /** Safe accessor — returns undefined (never throws) when the bridge is missing. */
 function bridge(): any {
@@ -290,6 +290,18 @@ export const update = {
       await api.openUpdate(url)
     } catch (e) {
       console.error('Failed to open update page', e)
+    }
+  },
+  /** ML models installed on this device (for Settings -> Model). */
+  async localModels(): Promise<LocalModels | null> {
+    const api = bridge()
+    if (!api?.localModels) return null
+    try {
+      const res = await api.localModels()
+      return res && typeof res === 'object' ? { detector: res.detector ?? null, recognizer: res.recognizer ?? null, quality: res.quality ?? null } : null
+    } catch (e) {
+      console.error('localModels failed', e)
+      return null
     }
   },
 }

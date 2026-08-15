@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('electron', {
   // In-app update check (backend serves the release manifest)
   checkUpdate: () => ipcRenderer.invoke('app:check-update'),
   openUpdate: (url) => ipcRenderer.invoke('app:open-update', url),
+  // ML models installed on this device (for Settings -> Model)
+  localModels: () => ipcRenderer.invoke('app:local-models'),
   // Reveal the original file in the system file manager (Finder/Explorer)
   showItem: (filePath) => ipcRenderer.invoke('app:show-item', filePath),
 
