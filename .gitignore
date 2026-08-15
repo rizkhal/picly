@@ -38,6 +38,10 @@ uploads/
 # Sample datasets (psdkp-sample-tile etc.)
 /data/
 
+# Local investigation crops (face-crop dumps for visual review — never commit)
+assets/debug/
+desktop/assets/debug/
+
 # Desktop local database + thumbnails
 /desktop/data/
 
