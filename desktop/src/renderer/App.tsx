@@ -448,8 +448,10 @@ export default function App() {
         />
       )}
 
-      {/* Person manager — manual merge/split (survives re-cluster) */}
-      {personManagerOpen && (
+      {/* Person manager — manual merge/split (survives re-cluster). NOTE: UI
+          entry point dihapus sementara atas permintaan user — re-enable ketika
+          diminta lagi. */}
+      {false && personManagerOpen && (
         <PersonManager
           persons={persons}
           onClose={() => setPersonManagerOpen(false)}
