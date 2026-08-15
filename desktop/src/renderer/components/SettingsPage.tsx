@@ -14,6 +14,8 @@ type SettingsPageProps = {
   onClose: () => void
   showSingletons: boolean
   onToggleShowSingletons: () => void
+  section: SettingsSectionId
+  onSectionChange: (section: SettingsSectionId) => void
 }
 
 type StoreStats = {
@@ -23,7 +25,7 @@ type StoreStats = {
   folders: number
 }
 
-type SettingsSectionId = 'account' | 'storage' | 'faces' | 'models' | 'about'
+export type SettingsSectionId = 'account' | 'storage' | 'faces' | 'models' | 'about'
 
 function ModelRow({ title, desc, installed, latest }: { title: string; desc: string; installed: string | null; latest?: string | null }) {
   const hasNewer = !!latest && latest !== installed
@@ -49,8 +51,7 @@ const MENU: Array<{ id: SettingsSectionId; label: string; icon: React.ReactNode 
   { id: 'about', label: 'Tentang', icon: <Info size={16} /> },
 ]
 
-export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, updateChecking, onCheckUpdate, onOpenUpdate, onClose, showSingletons, onToggleShowSingletons }: SettingsPageProps) {
-  const [section, setSection] = useState<SettingsSectionId>('account')
+export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, updateChecking, onCheckUpdate, onOpenUpdate, onClose, showSingletons, onToggleShowSingletons, section, onSectionChange }: SettingsPageProps) {
   const [stats, setStats] = useState<StoreStats | null>(null)
   const [localModels, setLocalModels] = useState<LocalModels | null>(null)
 
@@ -73,7 +74,7 @@ export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, upd
             <button
               key={m.id}
               className={`settings-nav-item${section === m.id ? ' active' : ''}`}
-              onClick={() => setSection(m.id)}
+              onClick={() => onSectionChange(m.id)}
             >
               <span className="settings-nav-icon">{m.icon}</span>
               <span className="settings-nav-label">{m.label}</span>

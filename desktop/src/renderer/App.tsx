@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { MagnifyingGlass, Camera } from '@phosphor-icons/react'
+import { MagnifyingGlass, Camera, Queue } from '@phosphor-icons/react'
 import type { Folder, Photo } from './types'
 import { useLibrary } from './hooks/useLibrary'
 import { useScans } from './hooks/useScans'
@@ -9,8 +9,15 @@ import { Sidebar, FacesBar } from './components/Sidebar'
 import { PhotoGrid, PhotoModal } from './components/PhotoGrid'
 import { AuthModal } from './components/AuthModal'
 import { UpdateBanner } from './components/UpdateBanner'
-import { SettingsPage } from './components/SettingsPage'
+import { SettingsPage, type SettingsSectionId } from './components/SettingsPage'
+import { ManagePhotosPage } from './components/ManagePhotosPage'
 import { PersonManager } from './components/PersonManager'
+import { ScanProgressPage } from './components/ScanProgressPage'
+
+// Main-panel pages. Persisted so a reload stays on the same page the user left.
+type PageId = 'library' | 'settings' | 'manage' | 'progress'
+const PAGE_KEY = 'picly:page'
+const SETTINGS_SECTION_KEY = 'picly:settings-section'
 
 export default function App() {
   // Library: disks / folders / persons / photos
@@ -55,10 +62,50 @@ export default function App() {
   const [scanError, setScanError] = useState<string | null>(null)
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [photoIndex, setPhotoIndex] = useState(0)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [personManagerOpen, setPersonManagerOpen] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Page routing is persisted so a reload stays on the same page the user left.
+  // 'library' is the default (photo grid).
+  const [page, setPage] = useState<PageId>(() => {
+    try {
+      const v = localStorage.getItem(PAGE_KEY)
+      return v === 'settings' || v === 'manage' || v === 'progress' ? v : 'library'
+    } catch {
+      return 'library'
+    }
+  })
+  useEffect(() => {
+    try { localStorage.setItem(PAGE_KEY, page) } catch { /* ignore */ }
+  }, [page])
+
+  // Persist the active Settings section too, so reload stays on e.g. Models.
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>(() => {
+    try {
+      const v = localStorage.getItem(SETTINGS_SECTION_KEY)
+      return v === 'account' || v === 'storage' || v === 'faces' || v === 'models' || v === 'about' ? v : 'account'
+    } catch {
+      return 'account'
+    }
+  })
+  useEffect(() => {
+    try { localStorage.setItem(SETTINGS_SECTION_KEY, settingsSection) } catch { /* ignore */ }
+  }, [settingsSection])
+
+  // Scan progress is a full page — auto-open it when the USER starts a scan
+  // (add folder / re-scan). No auto-close: the page stays where the user left
+  // it (including across resume, where the paused row briefly disappears before
+  // the resumed row arrives), and is closed via the × button.
+  const handleAddFolder = useCallback(async () => {
+    setPage('progress')
+    await scanFolder()
+  }, [scanFolder])
+
+  const handleRescanFolder = useCallback((folder: Folder) => {
+    setPage('progress')
+    rescanFolder(folder.host_path)
+  }, [rescanFolder])
 
   // Track the current person/folder/no-faces scope for scan-completion refresh
   useEffect(() => {
@@ -259,7 +306,10 @@ export default function App() {
     setSelectedPhoto(null)
   }
 
-  // Navigate the modal to another photo in the current scope (keyboard/rail)
+  // Manage photos — placeholder for now (open a dialog in the future).
+  const handleManagePhotos = () => {
+    setPage('manage')
+  }
   const handleNavigate = (index: number) => {
     if (index < 0 || index >= photos.length) return
     setPhotoIndex(index)
@@ -270,34 +320,42 @@ export default function App() {
     <div className="app">
       <Sidebar
         scanError={scanError}
-        activeScans={activeScans}
-        dismissedScans={dismissedScans}
-        onPause={pauseScan}
-        onResume={resumeScan}
-        onRemove={removeScan}
-        onDismiss={dismissScan}
         folders={folders}
         selectedFolder={selectedFolder}
         onFolderClick={handleFolderClick}
         onRemoveFolder={handleRemoveFolder}
-        onRescanFolder={(folder) => rescanFolder(folder.host_path)}
+        onRescanFolder={handleRescanFolder}
         scanning={scanning}
-        onAddFolder={scanFolder}
+        onAddFolder={handleAddFolder}
+        onManagePhotos={handleManagePhotos}
         trashCount={trashCount}
         trashSelected={trashSelected}
         onTrashClick={handleTrashClick}
         driveStatus={driveStatus}
         personCount={persons.length}
         authEmail={authStatus.loggedIn ? authStatus.email : null}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => setPage('settings')}
         onRestorePhoto={handleRestorePhoto}
         onEmptyTrash={handleEmptyTrash}
       />
 
       {/* Main content */}
       <div className="main">
-        {/* Settings page — replaces the main panel content */}
-        {settingsOpen ? (
+        {/* Manage photos page — replaces the main panel content (full page, not modal) */}
+        {page === 'manage' ? (
+          <ManagePhotosPage onClose={() => setPage('library')} />
+        ) : page === 'progress' ? (
+          <ScanProgressPage
+            scans={activeScans.filter((s) => !dismissedScans.has(s.scan_id))}
+            scanning={scanning}
+            onPause={pauseScan}
+            onResume={resumeScan}
+            onRemove={removeScan}
+            onDismiss={dismissScan}
+            onAddFolder={handleAddFolder}
+            onClose={() => setPage('library')}
+          />
+        ) : page === 'settings' ? (
           <SettingsPage
             authStatus={authStatus}
             onLogout={handleLogout}
@@ -306,9 +364,11 @@ export default function App() {
             updateChecking={updateChecking}
             onCheckUpdate={() => checkForUpdate(false)}
             onOpenUpdate={openUpdatePage}
-            onClose={() => setSettingsOpen(false)}
+            onClose={() => setPage('library')}
             showSingletons={showSingletons}
             onToggleShowSingletons={() => { toggleShowSingletons(); loadPersons() }}
+            section={settingsSection}
+            onSectionChange={setSettingsSection}
           />
         ) : (
           <>
@@ -350,6 +410,14 @@ export default function App() {
                   <Camera size={18} />
                 </button>
               </div>
+              {/* Scan progress — outside the search box, far right of the toolbar */}
+              <button
+                className={`toolbar-icon-btn scan-queue-btn${scanning ? ' active' : ''}`}
+                onClick={() => setPage('progress')}
+                title={scanning ? 'Scan sedang berjalan — lihat progress' : 'Scan progress'}
+              >
+                {scanning ? <span className="btn-spinner" /> : <Queue size={18} />}
+              </button>
             </div>
 
             {/* Face avatar rail — horizontal scroll nav above the grid */}
@@ -459,6 +527,10 @@ export default function App() {
           onSplit={handleSplitPerson}
         />
       )}
+
+      {/* Manage photos — replaced by a full page (see main panel) */}
+
+      {/* Scan progress is a full page, not a modal. */}
 
       {/* Auth modal — login / register (account is optional; local features don't require it) */}
       {authModal && (

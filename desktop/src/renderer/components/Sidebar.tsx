@@ -1,98 +1,9 @@
-import { Folder, Trash, X, Pause, Play, GearSix, Aperture, ArrowClockwise } from '@phosphor-icons/react'
-import type { Folder as FolderT, PersonPreview, ScanProgress } from '../types'
-
-type ScanRowProps = {
-  scan: ScanProgress
-  onPause: (scanId: string) => void
-  onResume: (scanId: string) => void
-  onRemove: (scanId: string) => void
-  onDismiss: (scanId: string) => void
-}
-
-function ScanRow({ scan, onPause, onResume, onRemove, onDismiss }: ScanRowProps) {
-  const total = scan.total || 0
-  const processed = scan.processed || 0
-  const pct = total > 0
-    ? Math.min(100, Math.round((processed / total) * 100))
-    : (scan.status === 'done' || scan.status === 'error' ? 100 : 0)
-  const name = (scan.folder || '').split('/').filter(Boolean).pop() || 'Folder'
-  const isQueued = scan.status === 'queued'
-  const isRunning = scan.status === 'running'
-  const isPaused = scan.status === 'paused'
-  const isDone = scan.status === 'done'
-  const isError = scan.status === 'error'
-  const isCancelled = scan.status === 'cancelled'
-  return (
-    <div key={scan.scan_id} className="scan-nav-item">
-      <div className="scan-item-top">
-        <div className="disk-info">
-          <div className="disk-name" title={scan.folder}>{name}</div>
-          <div className="disk-space">
-            {isQueued ? 'Queued…' : isRunning ? `${processed}/${total}` : isPaused ? `⏸ ${processed}/${total}` : isDone ? (total === 0 ? 'Semua ter-index' : `✓ ${scan.scanned} photos`) : isCancelled ? 'Stopped' : 'Failed'}
-          </div>
-        </div>
-        <div className="row-actions">
-          {(isQueued || isRunning) && (
-            <button className="scan-pause-btn" title="Pause scan" onClick={() => onPause(scan.scan_id)}>
-              <Pause size={13} weight="bold" />
-            </button>
-          )}
-          {isPaused && (
-            <>
-              <button className="scan-resume-btn" title="Lanjutkan scan" onClick={() => onResume(scan.scan_id)}>
-                <Play size={13} weight="bold" />
-              </button>
-              <button className="scan-delete-btn" title="Hapus scan" onClick={() => onRemove(scan.scan_id)}>
-                <Trash size={13} weight="bold" />
-              </button>
-            </>
-          )}
-          {(isDone || isError || isCancelled) && (
-            <button className="scan-dismiss-btn" title="Sembunyikan" onClick={() => onDismiss(scan.scan_id)}>
-              <X size={13} weight="bold" />
-            </button>
-          )}
-        </div>
-      </div>
-      {!isDone && !isError && !isCancelled && (
-        <div className="progress-bar">
-          <div
-            className={`progress-fill${isPaused ? ' paused' : ''}`}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      )}
-      <div className="scan-item-sub">
-        {isRunning && scan.current_file ? (
-          <span className="scan-current" title={scan.current_file}>{scan.current_file.split('/').pop()}</span>
-        ) : isQueued ? (
-          <span>Waiting for a previous scan to finish…</span>
-        ) : isPaused ? (
-          <span className="scan-paused-line">Paused — Resume untuk lanjut dari sisa</span>
-        ) : isDone ? (
-          <span className="scan-done-line">
-            {scan.scanned} new · {scan.total_faces} faces · {scan.persons} persons
-            {scan.removed ? ` · ${scan.removed} removed` : ''}
-            {scan.errors ? ` · ${scan.errors} errors` : ''}
-          </span>
-        ) : isCancelled ? (
-          <span className="scan-cancelled-line">Stopped at {processed} of {total} files</span>
-        ) : isError ? (
-          <span className="scan-error-line">Scan failed{scan.errors ? ` (${scan.errors} errors)` : ''}</span>
-        ) : null}
-      </div>
-    </div>
-  )
-}
+import { useEffect, useRef, useState } from 'react'
+import { Folder, Trash, GearSix, Aperture, ArrowClockwise, Plus } from '@phosphor-icons/react'
+import type { Folder as FolderT, PersonPreview } from '../types'
 
 type SidebarProps = {
   scanError: string | null
-  activeScans: ScanProgress[]
-  dismissedScans: Set<string>
-  onPause: (scanId: string) => void
-  onResume: (scanId: string) => void
-  onRemove: (scanId: string) => void
-  onDismiss: (scanId: string) => void
   folders: FolderT[]
   selectedFolder: FolderT | null
   onFolderClick: (folder: FolderT) => void
@@ -100,6 +11,7 @@ type SidebarProps = {
   onRescanFolder: (folder: FolderT) => void
   scanning: boolean
   onAddFolder: () => void
+  onManagePhotos?: () => void
   trashCount: number
   trashSelected: boolean
   onTrashClick: () => void
@@ -114,13 +26,21 @@ type SidebarProps = {
 export function Sidebar(props: SidebarProps) {
   const {
     scanError,
-    activeScans, dismissedScans, onPause, onResume, onRemove, onDismiss,
     folders, selectedFolder, onFolderClick, onRemoveFolder,
-    onRescanFolder, scanning, onAddFolder,
+    onRescanFolder, scanning, onAddFolder, onManagePhotos,
     trashCount, trashSelected, onTrashClick,
     driveStatus, personCount, onOpenSettings, authEmail,
   } = props
-  const visibleScans = activeScans.filter((s) => !dismissedScans.has(s.scan_id))
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDocClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [menuOpen])
   return (
     <div className="sidebar">
       <div className="sidebar-header">
@@ -139,25 +59,41 @@ export function Sidebar(props: SidebarProps) {
       {/* Folders + scanning scroll together; sidebar-bottom stays pinned */}
       <div className="sidebar-scroll">
 
-        {/* Scanning — live scan progress (aktif/baru selesai) lives in the sidebar */}
-        {visibleScans.length > 0 && (
-          <div className="sidebar-section">
-            <div className="sidebar-section-title">Scanning</div>
-            <div className="scan-progress scan-sidebar">
-              {visibleScans.map((s) => (
-                <ScanRow key={s.scan_id} scan={s} onPause={onPause} onResume={onResume} onRemove={onRemove} onDismiss={onDismiss} />
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Folders added via '+ Add folder' */}
         <div className="sidebar-section">
           <div className="sidebar-section-title-row">
             <div className="sidebar-section-title">Folders</div>
-            <button className="add-folder-text-btn" onClick={onAddFolder} disabled={scanning}>
-              {scanning ? (<><span className="btn-spinner" />Scanning…</>) : '+ Add folder'}
-            </button>
+            <div className="sidebar-title-actions">
+              <div className="sidebar-title-menu" ref={menuRef}>
+                <button
+                  className="icon-btn"
+                  onClick={() => setMenuOpen((v) => !v)}
+                  disabled={scanning}
+                  title={scanning ? 'Scanning sedang berjalan…' : 'Folder options'}
+                >
+                  {scanning ? <span className="btn-spinner" /> : <Plus size={14} weight="bold" />}
+                </button>
+                {menuOpen && (
+                  <div className="sidebar-title-dropdown">
+                    <button
+                      className="sidebar-title-dropdown-item"
+                      onClick={() => { setMenuOpen(false); onAddFolder() }}
+                      disabled={scanning}
+                    >
+                      <Plus size={13} /> Add folder
+                    </button>
+                    {onManagePhotos && (
+                      <button
+                        className="sidebar-title-dropdown-item"
+                        onClick={() => { setMenuOpen(false); onManagePhotos() }}
+                      >
+                        <Folder size={13} /> Manage photos
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
           <div className="nav-list">
             {folders.map((folder) => (
