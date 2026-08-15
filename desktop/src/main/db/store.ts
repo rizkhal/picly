@@ -74,10 +74,11 @@ export interface StoreOptions {
    */
   thumbDir?: string
   /**
-   * Hide persons whose average face eDifFIQA is below this (default 0.18).
-   * Such clusters are near-identical blurry crops that merged into a
-   * non-identity — better hidden from the person list while their faces stay
-   * in the DB and remain visible in the photos. Set to 0 to disable.
+   * Hide persons whose average face eDifFIQA is below this (default 0.30).
+   * "Better absent than blurry": clusters whose average crop quality is this
+   * low are not trustworthy identities — hidden from the person list while
+   * their faces stay in the DB and remain visible on the photos. Set to 0 to
+   * disable.
    */
   minAvgQuality?: number
 }
@@ -151,7 +152,7 @@ export class PhotoStore {
     this.db = db
     this.clusterLinkageThreshold = options.clusterLinkageThreshold ?? CLUSTER_LINKAGE_THRESHOLD
     this.thumbDir = options.thumbDir ?? null
-    this.minAvgQuality = options.minAvgQuality ?? 0.18
+    this.minAvgQuality = options.minAvgQuality ?? 0.30
     this.personSeq = (this.db.prepare('SELECT COUNT(*) AS n FROM persons').get() as { n: number }).n
   }
 
