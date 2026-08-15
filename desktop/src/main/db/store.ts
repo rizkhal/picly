@@ -3,31 +3,9 @@ import { randomUUID } from 'node:crypto'
 import { readdirSync, unlinkSync } from 'node:fs'
 import path from 'node:path'
 import { SCHEMA } from './schema'
+import { migrate } from './migrate'
 import { blobToEmbedding, cosine, embeddingToBlob } from './vec'
 import type { FaceQuality } from '../ml/types'
-
-/**
- * Lightweight migration for existing DBs: CREATE TABLE IF NOT EXISTS won't add
- * new columns to a table that already exists, so older databases (created
- * before face_quality columns) need ALTER TABLE. Idempotent + additive only.
- */
-function migrate(db: Database.Database): void {
-  const cols = new Set(
-    (db.prepare(`PRAGMA table_info(faces)`).all() as Array<{ name: string }>).map((c) => c.name),
-  )
-  if (!cols.has('face_quality')) db.exec(`ALTER TABLE faces ADD COLUMN face_quality TEXT NOT NULL DEFAULT 'medium'`)
-  if (!cols.has('low_quality')) db.exec(`ALTER TABLE faces ADD COLUMN low_quality INTEGER NOT NULL DEFAULT 0`)
-  if (!cols.has('quality_score')) db.exec(`ALTER TABLE faces ADD COLUMN quality_score REAL NOT NULL DEFAULT 0.5`)
-  const photoCols = new Set(
-    (db.prepare(`PRAGMA table_info(photos)`).all() as Array<{ name: string }>).map((c) => c.name),
-  )
-  if (!photoCols.has('deleted_at')) db.exec(`ALTER TABLE photos ADD COLUMN deleted_at TEXT`)
-  // person_manual table (manual merge/split bookkeeping) — older DBs predate it.
-  db.exec(`CREATE TABLE IF NOT EXISTS person_manual (
-    person_id TEXT PRIMARY KEY REFERENCES persons(id) ON DELETE CASCADE,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )`)
-}
 
 export const CLUSTER_MATCH_THRESHOLD = 0.5
 export const SEARCH_MIN_SIM = 0.5
