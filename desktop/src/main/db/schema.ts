@@ -49,6 +49,14 @@ CREATE TABLE IF NOT EXISTS folders (
     last_scanned_at TEXT
 );
 
+-- Persons the user manually created via merge/split. Re-clustering
+-- (clusterAllFaces) must never un-merge or re-merge these — their faces stay
+-- exactly where the user put them, so manual edits survive startup re-cluster.
+CREATE TABLE IF NOT EXISTS person_manual (
+    person_id TEXT PRIMARY KEY REFERENCES persons(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_faces_photo_id ON faces(photo_id);
 CREATE INDEX IF NOT EXISTS idx_faces_person_id ON faces(person_id);
 CREATE INDEX IF NOT EXISTS idx_photos_created_at ON photos(created_at DESC);

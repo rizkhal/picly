@@ -223,6 +223,23 @@ function registerLocalIpc() {
     getLocalServices().store.renamePerson(personId, name);
     return true;
   });
+  // Manual person editing — merge/split/single-face assign. These record
+  // person_manual so a startup re-cluster never un-does the user's edits.
+  ipcMain.handle('local:merge-persons', (_e, targetId, sourceIds) =>
+    require('../../dist-main/local.js').mergePersons(getLocalServices(), targetId, sourceIds || []),
+  );
+  ipcMain.handle('local:split-person', (_e, personId) =>
+    require('../../dist-main/local.js').splitPerson(getLocalServices(), personId),
+  );
+  ipcMain.handle('local:set-face-person', (_e, faceId, personId) =>
+    require('../../dist-main/local.js').setFacePerson(getLocalServices(), faceId, personId),
+  );
+  ipcMain.handle('local:assign-faces-to-person', (_e, sourcePersonId, targetPersonId) =>
+    require('../../dist-main/local.js').assignFacesToPerson(getLocalServices(), sourcePersonId, targetPersonId),
+  );
+  ipcMain.handle('local:list-faces-for-person', (_e, personId) =>
+    require('../../dist-main/local.js').listFacesForPerson(getLocalServices(), personId),
+  );
   ipcMain.handle('local:delete-folder', (_e, hostPath) => getLocalServices().store.deleteFolder(hostPath));
 
   ipcMain.handle('local:search-photo', async (_e, photoPath) => {

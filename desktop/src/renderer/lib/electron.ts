@@ -110,9 +110,9 @@ export const local = {
     }
   },
 
-  async photoFaces(photoId: string): Promise<Array<{ faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null }>> {
-    /** Faces (bbox + person) for one photo — used by the modal to draw the
-     *  selected-person rectangle even when the grid didn't pre-fetch it. */
+  async photoFaces(photoId: string): Promise<Array<{ faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null; faceQuality: string; lowQuality: boolean; qualityScore: number }>> {
+    /** Faces (bbox + person + quality) for one photo — used by the modal to draw the
+     *  selected-person rectangle and the editable detail list. */
     const api = bridge()
     if (!api?.local?.photoFaces) return []
     try {
@@ -175,6 +175,70 @@ export const local = {
       await api.local.renamePerson(personId, newName)
     } catch (e) {
       console.error('renamePerson failed', personId, e)
+    }
+  },
+
+  async mergePersons(targetId: string, sourceIds: string[]): Promise<number> {
+    const api = bridge()
+    if (!api?.local?.mergePersons) return 0
+    try {
+      const n = await api.local.mergePersons(targetId, sourceIds)
+      return typeof n === 'number' ? n : 0
+    } catch (e) {
+      console.error('mergePersons failed', targetId, e)
+      return 0
+    }
+  },
+
+  async splitPerson(personId: string): Promise<number> {
+    const api = bridge()
+    if (!api?.local?.splitPerson) return 0
+    try {
+      const n = await api.local.splitPerson(personId)
+      return typeof n === 'number' ? n : 0
+    } catch (e) {
+      console.error('splitPerson failed', personId, e)
+      return 0
+    }
+  },
+
+  async setFacePerson(faceId: string, personId: string | null): Promise<boolean> {
+    const api = bridge()
+    if (!api?.local?.setFacePerson) return false
+    try {
+      const ok = await api.local.setFacePerson(faceId, personId)
+      return !!ok
+    } catch (e) {
+      console.error('setFacePerson failed', faceId, e)
+      return false
+    }
+  },
+
+  async assignFacesToPerson(sourcePersonId: string, targetPersonId: string): Promise<number> {
+    const api = bridge()
+    if (!api?.local?.assignFacesToPerson) return 0
+    try {
+      const n = await api.local.assignFacesToPerson(sourcePersonId, targetPersonId)
+      return typeof n === 'number' ? n : 0
+    } catch (e) {
+      console.error('assignFacesToPerson failed', sourcePersonId, e)
+      return 0
+    }
+  },
+
+  async listFacesForPerson(personId: string): Promise<Array<{ faceId: string; photoPath: string | null; faceQuality: string }>> {
+    const api = bridge()
+    if (!api?.local?.listFacesForPerson) return []
+    try {
+      const rows = await api.local.listFacesForPerson(personId)
+      return (rows || []).map((r: any) => ({
+        faceId: r.faceId || r.face_id,
+        photoPath: r.photoPath ?? r.photo_path ?? null,
+        faceQuality: r.faceQuality ?? r.face_quality ?? 'medium',
+      }))
+    } catch (e) {
+      console.error('listFacesForPerson failed', personId, e)
+      return []
     }
   },
 

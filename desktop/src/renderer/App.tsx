@@ -10,6 +10,7 @@ import { PhotoGrid, PhotoModal } from './components/PhotoGrid'
 import { AuthModal } from './components/AuthModal'
 import { UpdateBanner } from './components/UpdateBanner'
 import { SettingsPage } from './components/SettingsPage'
+import { PersonManager } from './components/PersonManager'
 
 export default function App() {
   // Library: disks / folders / persons / photos
@@ -55,6 +56,7 @@ export default function App() {
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [photoIndex, setPhotoIndex] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [personManagerOpen, setPersonManagerOpen] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -220,6 +222,41 @@ export default function App() {
     loadPersons()
     loadFolders()
     loadTrashCount()
+  }
+
+  // Merge two+ persons into one (manual) — fixes over-split. After the merge,
+  // drop the (now-empty) source ids from the selected filter and refresh.
+  const handleMergePersons = async (targetId: string, sourceIds: string[]) => {
+    await ipc.local.mergePersons(targetId, sourceIds)
+    const mergedIds = new Set([targetId, ...sourceIds])
+    if (selectedPerson && mergedIds.has(selectedPerson)) {
+      setSelectedPerson(targetId)
+      loadPhotos(targetId)
+    }
+    loadPersons()
+  }
+
+  // Split one person into per-face singletons (manual) — fixes false merge.
+  const handleSplitPerson = async (personId: string) => {
+    await ipc.local.splitPerson(personId)
+    if (selectedPerson === personId) {
+      setSelectedPerson(null)
+      setPhotos([])
+    }
+    loadPersons()
+  }
+
+  // Click-face-to-filter: from the modal, jump to that face's person.
+  // NOT a toggle — re-clicking the currently-selected person keeps the filter
+  // (just closes the modal) instead of clearing the grid.
+  const handleFaceClick = (personId: string) => {
+    if (selectedPerson !== personId) {
+      setSelectedPerson(personId)
+      setSelectedFolder(null)
+      setTrashSelected(false)
+      loadPhotos(personId)
+    }
+    setSelectedPhoto(null)
   }
 
   // Navigate the modal to another photo in the current scope (keyboard/rail)
@@ -405,6 +442,19 @@ export default function App() {
           onDeletePhoto={handleDeletePhoto}
           selectedPerson={selectedPerson}
           personName={persons.find(p => p.person_id === selectedPhoto.person_id)?.name}
+          onFaceClick={handleFaceClick}
+          persons={persons}
+          onPersonChanged={() => { loadPersons(); loadFolders(); loadTrashCount() }}
+        />
+      )}
+
+      {/* Person manager — manual merge/split (survives re-cluster) */}
+      {personManagerOpen && (
+        <PersonManager
+          persons={persons}
+          onClose={() => setPersonManagerOpen(false)}
+          onMerge={handleMergePersons}
+          onSplit={handleSplitPerson}
         />
       )}
 

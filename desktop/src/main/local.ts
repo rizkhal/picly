@@ -202,3 +202,33 @@ export function listPersonPreviews(services: LocalServices, ids: string[]): unkn
 export function photoFaces(services: LocalServices, photoId: string): unknown[] {
   return services.store.facesForPhotoView(photoId)
 }
+
+// ------------------------------------------------- manual person editing
+
+/** Merge two+ persons into one (manual) — see PhotoStore.mergePersons. */
+export function mergePersons(services: LocalServices, targetId: string, sourceIds: string[]): number {
+  return services.store.mergePersons(targetId, sourceIds)
+}
+
+/** Split a person into per-face singletons (manual) — see PhotoStore.splitPerson. */
+export function splitPerson(services: LocalServices, personId: string): number {
+  return services.store.splitPerson(personId)
+}
+
+/** Manually assign one face to a person (or clear with null). */
+export function setFacePerson(services: LocalServices, faceId: string, personId: string | null): boolean {
+  return services.store.setFacePerson(faceId, personId)
+}
+
+/** Move a whole person's faces into another (manual merge). */
+export function assignFacesToPerson(services: LocalServices, sourcePersonId: string, targetPersonId: string): number {
+  return services.store.assignFacesToPerson(sourcePersonId, targetPersonId)
+}
+
+/** Face crops for one person, mapped to picly://face URLs (PersonManager rail). */
+export function listFacesForPerson(services: LocalServices, personId: string, limit = 200): unknown[] {
+  return services.store.listFacesForPerson(personId, limit).map((f) => ({
+    ...f,
+    faceUrl: `picly://face/${f.faceId}.jpg`,
+  }))
+}

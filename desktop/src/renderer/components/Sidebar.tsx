@@ -241,7 +241,7 @@ export function FacesBar({ persons, selectedPerson, onPersonClick }: FacesBarPro
   return (
     <div className="faces-bar">
       {persons.map((person) => {
-        const size = Math.min(48, 32 + (person.photo_count || 1) * 1.2)
+        const size = Math.min(64, 44 + (person.photo_count || 1) * 1.2)
         return (
           <div
             key={person.person_id}

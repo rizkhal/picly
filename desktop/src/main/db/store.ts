@@ -22,6 +22,11 @@ function migrate(db: Database.Database): void {
     (db.prepare(`PRAGMA table_info(photos)`).all() as Array<{ name: string }>).map((c) => c.name),
   )
   if (!photoCols.has('deleted_at')) db.exec(`ALTER TABLE photos ADD COLUMN deleted_at TEXT`)
+  // person_manual table (manual merge/split bookkeeping) — older DBs predate it.
+  db.exec(`CREATE TABLE IF NOT EXISTS person_manual (
+    person_id TEXT PRIMARY KEY REFERENCES persons(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`)
 }
 
 export const CLUSTER_MATCH_THRESHOLD = 0.5
@@ -550,18 +555,29 @@ export class PhotoStore {
       .all() as Array<{ faceId: string; photoId: string; embedding: Buffer | null; faceQuality: string; lowQuality: number }>
     if (rows.length === 0) return 0
 
+    // Faces the user MANUALLY assigned (merge/split) are frozen: re-cluster
+    // must never un-merge a manual merge or re-merge a manual split. Manual
+    // faces are excluded from the HAC pool entirely — they stay exactly where
+    // the user put them.
+    const manual = new Set(
+      (this.db.prepare(`SELECT f.id AS faceId FROM person_manual pm JOIN faces f ON f.person_id = pm.person_id`).all() as Array<{ faceId: string }>)
+        .map((r) => r.faceId),
+    )
+    const auto = rows.filter((r) => !manual.has(r.faceId))
+    if (auto.length === 0) return 0
+
     // VERY_LOW faces (below embedding threshold) have NULL embedding and never
     // participate in clustering — they are still detections (shown in UI), but
     // must not create or join clusters. LOW faces participate only via strong
     // joins (see matchQuality below), never as cluster anchors.
-    const n = rows.length
-    const emb = rows.map((r) => (r.embedding ? blobToEmbedding(r.embedding) : null))
-    const q = rows.map((r) => r.faceQuality as FaceQuality)
+    const n = auto.length
+    const emb = auto.map((r) => (r.embedding ? blobToEmbedding(r.embedding) : null))
+    const q = auto.map((r) => r.faceQuality as FaceQuality)
     const hasEmb = emb.map((e) => e !== null)
     const idxOf = new Map<string, number>()
     const embedIdx: number[] = []
     for (let i = 0; i < n; i++) {
-      idxOf.set(rows[i].faceId, i)
+      idxOf.set(auto[i].faceId, i)
       if (hasEmb[i]) embedIdx.push(i)
     }
     if (embedIdx.length === 0) return 0
@@ -704,7 +720,7 @@ export class PhotoStore {
         }
         for (let k = 0; k < 512; k++) c[k] /= members.length
         // Prefer a preserved custom name if any member was user-renamed.
-        const custom = members.map((m) => named.get(rows[m].faceId)).find(Boolean)
+        const custom = members.map((m) => named.get(auto[m].faceId)).find(Boolean)
         const personId = randomUUID()
         this.personSeq += 1
         this.db
@@ -714,7 +730,7 @@ export class PhotoStore {
         for (const m of members) {
           this.db
             .prepare(`UPDATE faces SET person_id = ? WHERE id = ?`)
-            .run(personId, rows[m].faceId)
+            .run(personId, auto[m].faceId)
         }
       }
       return created.length
@@ -811,6 +827,131 @@ export class PhotoStore {
     this.db.prepare(`UPDATE faces SET person_id = NULL WHERE person_id = ?`).run(personId)
     this.db.prepare(`DELETE FROM persons WHERE id = ?`).run(personId)
     this.invalidate()
+  }
+
+  // ------------------------------------------------- manual person editing
+
+  /**
+   * Manual merge — join two (or more) persons into one.
+   *
+   * All faces of `sourceIds` are reassigned to `targetId`, the target's
+   * centroid is recomputed from its (now larger) member set, and the name
+   * becomes "A & B & …" so the merge is visible. Because the user explicitly
+   * merged these clusters, the result is recorded in `person_manual` so a
+   * startup re-cluster (clusterAllFaces) never un-merges them: re-cluster
+   * skips manual persons entirely and keeps their faces assigned.
+   *
+   * Returns the number of source persons that were merged (dropped).
+   */
+  mergePersons(targetId: string, sourceIds: string[]): number {
+    const valid = sourceIds.filter((id) => id && id !== targetId)
+    if (valid.length === 0) return 0
+
+    const run = this.db.transaction(() => {
+      // 1. Move every face of the sources into the target person.
+      const move = this.db.prepare(`UPDATE faces SET person_id = ? WHERE person_id = ?`)
+      for (const src of valid) move.run(targetId, src)
+      // 2. Recompute the target centroid from its real member embeddings.
+      this.recomputeCentroid(targetId)
+      // 3. Merge names: "A & B" (and mark the target manual).
+      const nameRow = this.db.prepare(`SELECT name FROM persons WHERE id = ?`).get(targetId) as { name: string } | undefined
+      const srcNames = valid
+        .map((id) => (this.db.prepare(`SELECT name FROM persons WHERE id = ?`).get(id) as { name: string } | undefined)?.name)
+        .filter((n): n is string => !!n)
+      const parts = [nameRow?.name, ...srcNames].filter(Boolean)
+      this.db
+        .prepare(`UPDATE persons SET name = ?, updated_at = datetime('now') WHERE id = ?`)
+        .run(parts.join(' & '), targetId)
+      this.db.prepare(`INSERT OR IGNORE INTO person_manual (person_id) VALUES (?)`).run(targetId)
+      // 4. Drop the source person rows (their faces already moved).
+      const drop = this.db.prepare(`DELETE FROM persons WHERE id = ?`)
+      for (const src of valid) drop.run(src)
+      return valid.length
+    })
+    const n = run()
+    this.invalidate()
+    return n
+  }
+
+  /**
+   * Manual split — break a person into N singletons (one face per person).
+   *
+   * Faces of `personId` are detached into fresh `Person N` rows. This is a
+   * manual action the user asked for, so it is recorded in `person_manual` and
+   * `clusterAllFaces` keeps those new persons as-is (re-cluster never merges
+   * them back). Returns the number of new persons created.
+   */
+  splitPerson(personId: string): number {
+    const rows = this.db
+      .prepare(`SELECT id AS faceId, embedding FROM faces WHERE person_id = ? ORDER BY created_at`)
+      .all(personId) as Array<{ faceId: string; embedding: Buffer | null }>
+    if (rows.length <= 1) {
+      // Nothing meaningful to split; still mark it manual so re-cluster leaves it.
+      this.db.prepare(`INSERT OR IGNORE INTO person_manual (person_id) VALUES (?)`).run(personId)
+      return 0
+    }
+    const run = this.db.transaction(() => {
+      this.db.prepare(`UPDATE faces SET person_id = NULL WHERE person_id = ?`).run(personId)
+      const created: string[] = []
+      for (const r of rows) {
+        this.personSeq += 1
+        const newId = randomUUID()
+        this.db.prepare(`INSERT INTO persons (id, name, centroid) VALUES (?, ?, ?)`)
+          .run(newId, `Person ${this.personSeq}`, r.embedding)
+        this.db.prepare(`UPDATE faces SET person_id = ? WHERE id = ?`).run(newId, r.faceId)
+        created.push(newId)
+      }
+      this.db.prepare(`DELETE FROM persons WHERE id = ?`).run(personId)
+      for (const id of created) this.db.prepare(`INSERT OR IGNORE INTO person_manual (person_id) VALUES (?)`).run(id)
+      return created.length
+    })
+    const n = run()
+    this.invalidate()
+    return n
+  }
+
+  /**
+   * Manually assign a single face to an existing person (or clear it with
+   * null). Used by the click-face-to-filter flow when a face is not yet
+   * clustered (e.g. it was hidden as noise) — assign it so the user can act.
+   */
+  setFacePerson(faceId: string, personId: string | null): boolean {
+    const info = this.db.prepare(`UPDATE faces SET person_id = ? WHERE id = ?`).run(personId, faceId)
+    if (info.changes > 0) this.invalidate()
+    return info.changes > 0
+  }
+
+  /**
+   * Move a whole person's faces into an EXISTING target person (merge), and
+   * record the target as manual so re-cluster never un-merges it. Thin wrapper
+   * used by the click-face flow (assign this face's person into the person the
+   * user is currently viewing).
+   */
+  assignFacesToPerson(sourcePersonId: string, targetPersonId: string): number {
+    return this.mergePersons(targetPersonId, [sourcePersonId])
+  }
+
+  /** Recompute a person's centroid from its current member embeddings (mean,
+   *  re-L2-normalized). Faces without an embedding (very_low) are skipped. */
+  private recomputeCentroid(personId: string): void {
+    const rows = this.db
+      .prepare(`SELECT embedding FROM faces WHERE person_id = ? AND embedding IS NOT NULL`)
+      .all(personId) as Array<{ embedding: Buffer }>
+    if (rows.length === 0) {
+      this.db.prepare(`UPDATE persons SET centroid = NULL WHERE id = ?`).run(personId)
+      return
+    }
+    const c = new Float32Array(512)
+    for (const r of rows) {
+      const e = blobToEmbedding(r.embedding)
+      for (let k = 0; k < 512; k++) c[k] += e[k]
+    }
+    for (let k = 0; k < 512; k++) c[k] /= rows.length
+    let norm = 0
+    for (let k = 0; k < 512; k++) norm += c[k] * c[k]
+    norm = Math.sqrt(norm)
+    if (norm > 0) for (let k = 0; k < 512; k++) c[k] /= norm
+    this.db.prepare(`UPDATE persons SET centroid = ? WHERE id = ?`).run(embeddingToBlob(c), personId)
   }
 
   // ----------------------------------------------------------------- search
@@ -911,16 +1052,17 @@ export class PhotoStore {
   }
 
   /** Face boxes + person labels for a photo, for the detail-view overlay. */
-  facesForPhotoView(photoId: string): Array<{ faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null }> {
+  facesForPhotoView(photoId: string): Array<{ faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null; faceQuality: string; lowQuality: boolean; qualityScore: number }> {
     return this.db
       .prepare(
-        `SELECT f.id AS faceId, f.x1, f.y1, f.x2, f.y2, f.person_id AS personId, per.name AS personName
+        `SELECT f.id AS faceId, f.x1, f.y1, f.x2, f.y2, f.person_id AS personId, per.name AS personName,
+                f.face_quality AS faceQuality, f.low_quality AS lowQuality, f.quality_score AS qualityScore
          FROM faces f
          LEFT JOIN persons per ON per.id = f.person_id
          WHERE f.photo_id = ?
          ORDER BY f.created_at`,
       )
-      .all(photoId) as Array<{ faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null }>
+      .all(photoId) as Array<{ faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null; faceQuality: string; lowQuality: boolean; qualityScore: number }>
   }
 
   /** Distinct photo paths belonging to one person's faces. */
@@ -939,6 +1081,23 @@ export class PhotoStore {
       .prepare(`SELECT embedding FROM faces WHERE person_id = ? LIMIT ?`)
       .all(personId, limit) as Array<{ embedding: Buffer }>
     return rows.map((r) => blobToEmbedding(r.embedding))
+  }
+
+  /**
+   * Face crops for one person, newest-first — for the PersonManager preview
+   * rail (browse the faces inside a cluster before merging/splitting). Each
+   * row carries the crop's photo path + quality tier so the UI can show why
+   * a face is there.
+   */
+  listFacesForPerson(personId: string, limit = 200): Array<{ faceId: string; photoPath: string | null; faceQuality: string }> {
+    return this.db
+      .prepare(
+        `SELECT f.id AS faceId, p.path AS photoPath, f.face_quality AS faceQuality
+         FROM faces f JOIN photos p ON p.id = f.photo_id
+         WHERE f.person_id = ? AND p.deleted_at IS NULL
+         ORDER BY f.created_at DESC LIMIT ?`,
+      )
+      .all(personId, limit) as Array<{ faceId: string; photoPath: string | null; faceQuality: string }>
   }
 
   stats(): { photos: number; faces: number; persons: number; folders: number } {
