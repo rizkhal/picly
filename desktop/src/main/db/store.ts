@@ -502,15 +502,28 @@ export class PhotoStore {
     }
     const centroid = embedIdx.map((i) => emb[i] as Float32Array)
     const clusterSize = new Array<number>(m).fill(1)
+    // Whether a cluster's root face is LOW/very_low quality. A cluster seeded by
+    // a LOW face can never anchor a merge (it may only be absorbed).
+    const clusterLow = embedIdx.map((i) => q[embedIdx[i]] === 'low' || q[embedIdx[i]] === 'very_low')
 
-    // Tier join rule: two faces may merge only if BOTH are high/medium, OR the
-    // pair involves a low face but their sim is strong (>= lowJoinSim). This
-    // stops a tiny low-quality face from seeding its own cluster while still
-    // letting it join a real person when the evidence is strong.
+    // Tier join rule: a cluster may merge only if its anchor is high/medium
+    // quality. A LOW-quality face (blurry/weak) never anchors a merge on its
+    // own — it may only JOIN an existing high/medium cluster when the
+    // similarity is strong (>= lowJoinSim). This stops tiny/blurry faces from
+    // seeding their own cluster or dragging others into a phantom person.
     const canJoin = (ia: number, ib: number, s: number): boolean => {
+      // A cluster's anchor quality = the quality of its single member (root
+      // face). Multi-member clusters always have an anchor that was high/medium
+      // at merge time, so only singleton roots need the check here.
       const qa = q[embedIdx[ia]]
       const qb = q[embedIdx[ib]]
-      if (qa === 'low' || qb === 'low') return s >= LOW_JOIN_SIM
+      const aIsLow = qa === 'low' || qa === 'very_low'
+      const bIsLow = qb === 'low' || qb === 'very_low'
+      // LOW is allowed to join a HIGH/MEDIUM face (strong sim required).
+      if (aIsLow && !bIsLow) return s >= LOW_JOIN_SIM
+      if (bIsLow && !aIsLow) return s >= LOW_JOIN_SIM
+      // LOW-LOW can never merge (two blurry faces are not evidence of a person).
+      if (aIsLow && bIsLow) return false
       return true
     }
 
@@ -548,8 +561,14 @@ export class PhotoStore {
         }
       }
       if (bestI < 0) break // no pair reaches the threshold — done
-      // Respect the quality tier gate for singleton pairs (LOW needs strong sim).
-      if (clusterSize[bestI] === 1 && clusterSize[bestJ] === 1 && !canJoin(bestI, bestJ, bestS)) {
+      // Quality-aware merge gate: apply canJoin whenever a singleton LOW face is
+      // involved OR a LOW-seeded cluster would anchor a merge. LOW faces may join
+      // a real person (strong sim) but never seed or anchor a merge themselves.
+      const lowI = clusterLow[bestI]
+      const lowJ = clusterLow[bestJ]
+      const needGate = (clusterSize[bestI] === 1 && clusterSize[bestJ] === 1)
+        || lowI || lowJ
+      if (needGate && !canJoin(bestI, bestJ, bestS)) {
         // Block this specific pair but keep looking for other merges: mark it
         // below threshold by re-scanning without it is expensive, so instead we
         // simply lower it to threshold (never chosen again) and continue.
@@ -561,8 +580,12 @@ export class PhotoStore {
       // centroid (mean direction, re-L2-normalized).
       if (clusterSize[bestI] >= clusterSize[bestJ]) {
         this.mergeClusters(bestI, bestJ, parent, centroid, clusterSize)
+        // Survivor is low if either side was low (a low face can't be hidden by
+        // being absorbed — the merged cluster still can't anchor a new merge).
+        clusterLow[bestI] = lowI || lowJ
       } else {
         this.mergeClusters(bestJ, bestI, parent, centroid, clusterSize)
+        clusterLow[bestJ] = lowI || lowJ
       }
     }
 

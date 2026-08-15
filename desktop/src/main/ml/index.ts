@@ -1,6 +1,7 @@
 export { FaceAnalysis, ARCFACE_DST, type FaceAnalysisOptions } from './faceAnalysis'
 export { ScrfdDetector, type ScrfDetResult } from './scrfd'
 export { ArcFaceEmbedder } from './arcface'
+export { QualityScorer } from './quality'
 export { decodeRgb, letterbox, resizeBilinear, toNchwBlob, warpAffine } from './image'
 export { umeyama, svd2, det2 } from './matrix'
 export { buffaloL, defaultModelsDir, type ModelConfig } from './config'

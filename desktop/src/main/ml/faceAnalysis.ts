@@ -2,6 +2,7 @@ import { buffaloL, type ModelConfig } from './config'
 import { cropRegion, decodeRgb, letterbox, warpAffine } from './image'
 import { umeyama } from './matrix'
 import { ArcFaceEmbedder } from './arcface'
+import { QualityScorer } from './quality'
 import { ScrfdDetector } from './scrfd'
 import type { DetectedFace, FaceQuality, RgbImage } from './types'
 
@@ -81,6 +82,28 @@ export interface FaceAnalysisOptions {
   embed?: boolean
   /** Also embed faces below the embedding threshold (low/very_low). Default false. */
   embedLow?: boolean
+  /**
+   * Composite quality gate (eDifFIQA + detection score). Faces matching the
+   * condition are downgraded to very_low: they stay visible in the UI but
+   * don't get embedded / don't drive clustering (protects against phantom
+   * clusters from blur / non-face crops like Person 41).
+   *
+   * Condition (benchmarked on psdkp-sample-tile):
+   *   (detScore < detScoreGate && eqScore < eqScoreGate)
+   *   OR (side < tinySidePx && eqScore < eqScoreTiny)
+   *
+   * Defaults remove ~12/13 phantom Person-41 crops with 0/187 false positives
+   * on good faces (>=64px, det>=0.7). Set qualityScoreMin=0 to disable.
+   */
+  qualityScoreMin?: number
+  /** Detection-score arm of the gate (default 0.7). */
+  qualityGateDetScore?: number
+  /** eDifFIQA threshold for the det-score arm (default 0.25). */
+  qualityGateEqScore?: number
+  /** Tiny-face arm: side below this AND eDifFIQA below qualityGateEqTiny. */
+  qualityGateTinySidePx?: number
+  /** eDifFIQA threshold for the tiny-face arm (default 0.15). */
+  qualityGateEqTiny?: number
   /** Log per-stage detection details to console (tuning/debug). */
   debugLog?: boolean
 }
@@ -114,6 +137,8 @@ export interface DetectBreakdown {
   rejectedTiny: number
   rejectedScore: number
   rejectedKps: number
+  /** Faces downgraded to very_low by the eDifFIQA quality gate (not embedded). */
+  qualityDowngraded: number
 }
 
 /**
@@ -135,6 +160,13 @@ export class FaceAnalysis {
   private minFaceScore: number
   private embed: boolean
   private embedLow: boolean
+  private qualityScoreMin: number
+  private qualityGateDetScore: number
+  private qualityGateEqScore: number
+  private qualityGateTinySidePx: number
+  private qualityGateEqTiny: number
+  /** Lazy quality scorer (eDifFIQA) — created on first use. */
+  private qualityScorer: QualityScorer | null = null
   /** Timing of the last detectFromImage call (per-stage breakdown). */
   lastTimings: DetectTimings | null = null
   /** Detection counts of the last detectFromImage call. */
@@ -155,6 +187,11 @@ export class FaceAnalysis {
     minFaceScore: number,
     embed: boolean,
     embedLow: boolean,
+    qualityScoreMin: number,
+    qualityGateDetScore: number,
+    qualityGateEqScore: number,
+    qualityGateTinySidePx: number,
+    qualityGateEqTiny: number,
     debugLog: boolean,
   ) {
     this.detector = detector
@@ -170,6 +207,11 @@ export class FaceAnalysis {
     this.minFaceScore = minFaceScore
     this.embed = embed
     this.embedLow = embedLow ?? false
+    this.qualityScoreMin = qualityScoreMin ?? 0.2
+    this.qualityGateDetScore = qualityGateDetScore ?? 0.7
+    this.qualityGateEqScore = qualityGateEqScore ?? 0.25
+    this.qualityGateTinySidePx = qualityGateTinySidePx ?? 80
+    this.qualityGateEqTiny = qualityGateEqTiny ?? 0.15
     this.debugLog = debugLog ?? false
   }
 
@@ -192,6 +234,11 @@ export class FaceAnalysis {
       rest.minFaceScore ?? 0.3,
       rest.embed ?? true,
       rest.embedLow ?? false,
+      rest.qualityScoreMin === undefined ? 0.2 : rest.qualityScoreMin,
+      rest.qualityGateDetScore ?? 0.7,
+      rest.qualityGateEqScore ?? 0.25,
+      rest.qualityGateTinySidePx ?? 80,
+      rest.qualityGateEqTiny ?? 0.15,
       debugLog ?? false,
     )
     instance.debugLog = debugLog ?? false
@@ -383,6 +430,21 @@ export class FaceAnalysis {
     return this.embedder.l2Normalize(feat)
   }
 
+  /**
+   * eDifFIQA aligned-crop quality score for a detection (0..1, higher better).
+   * Aligns with the same warp as embedFace — the exact input the model was
+   * trained on. Returns null when the gate is disabled.
+   */
+  private async qualityScoreOf(img: RgbImage, kps: number[][]): Promise<number | null> {
+    if (!this.qualityScoreMin) return null
+    if (!this.qualityScorer) {
+      this.qualityScorer = await QualityScorer.create(this.config.qualityModel, this.config.arcInputSize)
+    }
+    const M = umeyama(kps, ARCFACE_DST)
+    const aimg = warpAffine(img, M, this.config.arcInputSize)
+    return this.qualityScorer.scoreAligned(aimg)
+  }
+
   async detectFromImage(img: RgbImage): Promise<DetectedFace[]> {
     const t0 = Date.now()
 
@@ -455,10 +517,29 @@ export class FaceAnalysis {
     // Stage 2: quality classification + conditional embedding.
     // Every accepted detection gets a quality tier; faces below the embedding
     // threshold (very_low) keep embedding null (skipped) unless embedLow is on.
+    // An eDifFIQA score below qualityScoreMin additionally downgrades the face
+    // to very_low — it stays a valid detection in the UI but can't drive
+    // recognition/clustering (protects against phantom clusters from blur /
+    // non-face crops).
     const faces: DetectedFace[] = []
     const qTiers = { high: 0, medium: 0, low: 0, very_low: 0 }
+    let qualityDowngraded = 0
     for (const f of accepted) {
-      const { quality, qualityScore } = this.classifyQuality(f.bbox, f.score, f.kps)
+      let { quality } = this.classifyQuality(f.bbox, f.score, f.kps)
+      let eqScore: number | null = null
+      if (this.qualityScoreMin) {
+        eqScore = await this.qualityScoreOf(img, f.kps)
+        const side = Math.max(f.bbox[2] - f.bbox[0], f.bbox[3] - f.bbox[1])
+        // Composite gate: low-confidence detections with poor eDifFIQA are
+        // almost always non-face (benchmark: 12/13 phantom Person-41 removed,
+        // 0/187 good >=64px faces touched). Plus a tiny-face blur arm.
+        const gateLowDet = f.score < this.qualityGateDetScore && eqScore !== null && eqScore < this.qualityGateEqScore
+        const gateTiny = side < this.qualityGateTinySidePx && eqScore !== null && eqScore < this.qualityGateEqTiny
+        if (gateLowDet || gateTiny) {
+          quality = 'very_low'
+          qualityDowngraded += 1
+        }
+      }
       qTiers[quality] += 1
       const shouldEmbed = this.embed && (quality !== 'very_low' || this.embedLow)
       faces.push({
@@ -467,14 +548,16 @@ export class FaceAnalysis {
         kps: f.kps,
         embedding: shouldEmbed ? await this.embedFace(img, f.bbox, f.kps) : null,
         quality,
-        qualityScore,
+        // When the gate is on, qualityScore = eDifFIQA score (0..1); otherwise
+        // the geometric heuristic (kept for backward compat with tools/UI).
+        qualityScore: this.qualityScoreMin ? (eqScore ?? 0) : this.classifyQuality(f.bbox, f.score, f.kps).qualityScore,
         lowQuality: quality === 'very_low',
       })
     }
     const t4 = Date.now()
 
     if (this.debugLog) {
-      console.log(`[detect] quality tiers: high=${qTiers.high} medium=${qTiers.medium} low=${qTiers.low} very_low=${qTiers.very_low}  embedded=${faces.filter((f) => f.embedding).length}`)
+      console.log(`[detect] quality tiers: high=${qTiers.high} medium=${qTiers.medium} low=${qTiers.low} very_low=${qTiers.very_low}  embedded=${faces.filter((f) => f.embedding).length}  eDifFIQA-downgraded=${qualityDowngraded}`)
     }
 
     this.lastTimings = {
@@ -492,6 +575,7 @@ export class FaceAnalysis {
       rejectedTiny,
       rejectedScore,
       rejectedKps,
+      qualityDowngraded,
     }
     return faces
   }

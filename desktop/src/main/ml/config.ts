@@ -11,6 +11,8 @@ export interface ModelConfig {
   detModel: string
   /** Path to the ArcFace recognition ONNX model (e.g. buffalo_l/w600k_r50.onnx). */
   arcModel: string
+  /** Path to the eDifFIQA face-quality ONNX model (ediffiqa/ediffiqa_t.onnx). */
+  qualityModel: string
   /** Square detection input size in px. */
   detInputSize: number
   /** Feature pyramid strides of the detector (8/16/32 for SCRFD). */
@@ -53,6 +55,7 @@ export function buffaloL(modelsDir: string = defaultModelsDir()): ModelConfig {
   return {
     detModel: path.join(modelsDir, 'buffalo_l', 'det_10g.onnx'),
     arcModel: path.join(modelsDir, 'buffalo_l', 'w600k_r50.onnx'),
+    qualityModel: path.join(modelsDir, 'ediffiqa', 'ediffiqa_t.onnx'),
     detInputSize: 640,
     detStrides: [8, 16, 32],
     detNumAnchors: 2,
