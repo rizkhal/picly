@@ -32,12 +32,6 @@ const PEOPLE: Array<{ dir: string; take: number }> = [
   { dir: 'Tony_Blair', take: 12 },
 ]
 
-function dot(a: Float32Array, b: Float32Array): number {
-  let s = 0
-  for (let i = 0; i < a.length; i++) s += a[i] * b[i]
-  return s
-}
-
 async function main(): Promise<void> {
   for (const p of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) rmSync(p, { force: true })
   rmSync(thumbDir, { recursive: true, force: true })

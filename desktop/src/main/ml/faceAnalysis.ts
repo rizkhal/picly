@@ -449,7 +449,7 @@ export class FaceAnalysis {
   }
 
   /** Embed an aligned face from a detection (warp by kps, ArcFace, L2). */
-  private async embedFace(img: RgbImage, bbox: [number, number, number, number], kps: number[][]): Promise<Float32Array> {
+  private async embedFace(img: RgbImage, _bbox: [number, number, number, number], kps: number[][]): Promise<Float32Array> {
     const M = umeyama(kps, ARCFACE_DST)
     const aimg = warpAffine(img, M, this.config.arcInputSize)
     const feat = await this.embedder.getFeat(aimg)

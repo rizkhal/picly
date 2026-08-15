@@ -101,6 +101,12 @@ async function main(): Promise<void> {
       }
       used.add(best)
       const g = entry.faces[best]
+      if (!f.embedding || !g.embedding) {
+        rows.push(
+          `  Face [${d}]: SKIP — missing embedding (low quality), IoU=${pad(bestIoU)}`,
+        )
+        continue
+      }
       const sim = cosSim(f.embedding, g.embedding)
       const refSim = g.ref_embedding ? cosSim(f.embedding, g.ref_embedding) : NaN
       const mDiff = maxAbsDiff(umeyama(f.kps, ARCFACE_DST), g.M)
@@ -138,12 +144,18 @@ async function main(): Promise<void> {
   // Self-consistency: the same image must produce an identical embedding.
   const first = photos[0]
   const [a1, a2] = await Promise.all([analysis.detect(first.photo), analysis.detect(first.photo)])
-  const selfSim = cosSim(a1[0].embedding, a2[0].embedding)
-  const selfOk = selfSim > SELF_COS_MIN
-  if (!selfOk) pass = false
-  console.log(
-    `\nSelf-consistency (${path.basename(first.photo)}): cosSim=${selfSim.toFixed(6)} ${selfOk ? 'PASS' : 'FAIL'}`,
-  )
+  const e1 = a1[0]?.embedding
+  const e2 = a2[0]?.embedding
+  if (!e1 || !e2) {
+    console.log('\nSelf-consistency: SKIP — no embedding (low quality)')
+  } else {
+    const selfSim = cosSim(e1, e2)
+    const selfOk = selfSim > SELF_COS_MIN
+    if (!selfOk) pass = false
+    console.log(
+      `\nSelf-consistency (${path.basename(first.photo)}): cosSim=${selfSim.toFixed(6)} ${selfOk ? 'PASS' : 'FAIL'}`,
+    )
+  }
 
   console.log(pass ? '\n=== ALL PASS ===' : '\n=== SOME FAILURES ===')
   process.exit(pass ? 0 : 1)

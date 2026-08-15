@@ -21,13 +21,12 @@ import type { RgbImage } from './types'
  */
 export class QualityScorer {
   private session!: ort.InferenceSession
-  private modelPath: string
   private inputName = ''
   private outputName = ''
   private size: number
 
   private constructor(modelPath: string, size: number) {
-    this.modelPath = modelPath
+    void modelPath
     this.size = size
   }
 
