@@ -104,6 +104,13 @@ export interface FaceAnalysisOptions {
   qualityGateTinySidePx?: number
   /** eDifFIQA threshold for the tiny-face arm (default 0.15). */
   qualityGateEqTiny?: number
+  /**
+   * Blur arm: faces with eDifFIQA below this are additionally downgraded one
+   * tier (and never rated high), because a blurry crop is weak evidence of an
+   * identity. Default 0.15 — under it a 64px+ crop falls to medium, under the
+   * min it falls to low. Set to 0 to disable.
+   */
+  qualityBlurEq?: number
   /** Log per-stage detection details to console (tuning/debug). */
   debugLog?: boolean
 }
@@ -165,6 +172,7 @@ export class FaceAnalysis {
   private qualityGateEqScore: number
   private qualityGateTinySidePx: number
   private qualityGateEqTiny: number
+  private qualityBlurEq: number
   /** Lazy quality scorer (eDifFIQA) — created on first use. */
   private qualityScorer: QualityScorer | null = null
   /** Timing of the last detectFromImage call (per-stage breakdown). */
@@ -192,6 +200,7 @@ export class FaceAnalysis {
     qualityGateEqScore: number,
     qualityGateTinySidePx: number,
     qualityGateEqTiny: number,
+    qualityBlurEq: number,
     debugLog: boolean,
   ) {
     this.detector = detector
@@ -212,6 +221,7 @@ export class FaceAnalysis {
     this.qualityGateEqScore = qualityGateEqScore ?? 0.25
     this.qualityGateTinySidePx = qualityGateTinySidePx ?? 80
     this.qualityGateEqTiny = qualityGateEqTiny ?? 0.15
+    this.qualityBlurEq = qualityBlurEq ?? 0.15
     this.debugLog = debugLog ?? false
   }
 
@@ -239,6 +249,7 @@ export class FaceAnalysis {
       rest.qualityGateEqScore ?? 0.25,
       rest.qualityGateTinySidePx ?? 80,
       rest.qualityGateEqTiny ?? 0.15,
+      rest.qualityBlurEq ?? 0.15,
       debugLog ?? false,
     )
     instance.debugLog = debugLog ?? false
@@ -365,11 +376,18 @@ export class FaceAnalysis {
   }
 
   /**
-   * Quality tier from bbox size + quality score. Tiers are configurable via
-   * quality thresholds below; the mapping is: size bands first (high >= 64px,
-   * medium 32-64, low 20-32, very_low < 20) then score-based promotion.
+   * Quality tier from bbox size + quality score + (optional) eDifFIQA blur
+   * score. Size bands first (high >= 64px, medium 32-64, low 20-32, very_low
+   * < 20) then score-based promotion. When eqScore (eDifFIQA) is provided and
+   * below qualityBlurEq the face is downgraded one tier and never rated high:
+   * a blurry crop is weak evidence of an identity, even when it is large.
    */
-  private classifyQuality(bbox: number[], score: number, kps: number[][]): { quality: FaceQuality; qualityScore: number } {
+  private classifyQuality(
+    bbox: number[],
+    score: number,
+    kps: number[][],
+    eqScore: number | null = null,
+  ): { quality: FaceQuality; qualityScore: number } {
     const side = Math.max(bbox[2] - bbox[0], bbox[3] - bbox[1])
     const q = this.qualityScore(bbox, score, kps)
     let quality: FaceQuality
@@ -377,6 +395,14 @@ export class FaceAnalysis {
     else if (side >= 32) quality = 'medium'
     else if (side >= 20) quality = q >= 0.45 ? 'low' : 'very_low'
     else quality = 'very_low'
+    // Blur arm: eDifFIQA below qualityBlurEq -> one tier down, never high.
+    // Under half of qualityBlurEq (very blurry) -> one more tier down.
+    if (eqScore !== null && this.qualityBlurEq > 0 && eqScore < this.qualityBlurEq) {
+      const drop = eqScore < this.qualityBlurEq / 2 ? 2 : 1
+      const order: FaceQuality[] = ['high', 'medium', 'low', 'very_low']
+      const idx = order.indexOf(quality)
+      quality = order[Math.min(order.length - 1, Math.max(0, idx + drop))]
+    }
     return { quality, qualityScore: q }
   }
 
@@ -525,10 +551,11 @@ export class FaceAnalysis {
     const qTiers = { high: 0, medium: 0, low: 0, very_low: 0 }
     let qualityDowngraded = 0
     for (const f of accepted) {
-      let { quality } = this.classifyQuality(f.bbox, f.score, f.kps)
+      let { quality } = this.classifyQuality(f.bbox, f.score, f.kps, null)
       let eqScore: number | null = null
       if (this.qualityScoreMin) {
         eqScore = await this.qualityScoreOf(img, f.kps)
+        quality = this.classifyQuality(f.bbox, f.score, f.kps, eqScore).quality
         const side = Math.max(f.bbox[2] - f.bbox[0], f.bbox[3] - f.bbox[1])
         // Composite gate: low-confidence detections with poor eDifFIQA are
         // almost always non-face (benchmark: 12/13 phantom Person-41 removed,

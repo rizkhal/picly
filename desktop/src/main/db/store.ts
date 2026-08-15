@@ -73,6 +73,13 @@ export interface StoreOptions {
    * files from disk — otherwise deleted rows leave orphan files behind.
    */
   thumbDir?: string
+  /**
+   * Hide persons whose average face eDifFIQA is below this (default 0.18).
+   * Such clusters are near-identical blurry crops that merged into a
+   * non-identity — better hidden from the person list while their faces stay
+   * in the DB and remain visible in the photos. Set to 0 to disable.
+   */
+  minAvgQuality?: number
 }
 
 export interface AddPhotoInput {
@@ -106,6 +113,8 @@ export interface PersonSummary {
   name: string
   photoCount: number
   faceCount: number
+  /** Mean eDifFIQA (quality_score) of the person's embedded faces, 0..1. */
+  avgQuality: number
 }
 
 export interface SearchHit {
@@ -136,11 +145,13 @@ export class PhotoStore {
   private personSeq = 0
   private readonly clusterLinkageThreshold: number
   private readonly thumbDir: string | null
+  private readonly minAvgQuality: number
 
   private constructor(db: Database.Database, options: StoreOptions = {}) {
     this.db = db
     this.clusterLinkageThreshold = options.clusterLinkageThreshold ?? CLUSTER_LINKAGE_THRESHOLD
     this.thumbDir = options.thumbDir ?? null
+    this.minAvgQuality = options.minAvgQuality ?? 0.18
     this.personSeq = (this.db.prepare('SELECT COUNT(*) AS n FROM persons').get() as { n: number }).n
   }
 
@@ -690,10 +701,13 @@ export class PhotoStore {
   }
 
   /**
-   * Person summaries, newest-first. Noise clusters (persons that appear in a
-   * single photo with a single face — usually background guests or detection
-   * artifacts) are hidden unless includeNoise is set. They stay in the DB;
-   * hiding them keeps the face filter from cluttering with one-off "Person N".
+   * Person summaries, newest-first. Two kinds of persons are hidden unless
+   * includeNoise is set (they stay in the DB; hiding them keeps the face filter
+   * uncluttered):
+   *   - noise clusters: single photo + single face (background guests/artifacts)
+   *   - junk-blur clusters: avg eDifFIQA below minAvgQuality (e.g. a cluster of
+   *     near-identical blurry crops like Person 126) — all-blur clusters are not
+   *     trustworthy identities.
    */
   listPersons(includeNoise = false): PersonSummary[] {
     return this.db
@@ -701,14 +715,16 @@ export class PhotoStore {
         `WITH sizes AS (
            SELECT p.id, p.name, p.created_at,
                   COUNT(DISTINCT f.photo_id) AS photoCount,
-                  COUNT(f.id) AS faceCount
+                  COUNT(f.id) AS faceCount,
+                  AVG(f.quality_score) AS avgQuality
            FROM persons p LEFT JOIN faces f ON f.person_id = p.id
            GROUP BY p.id
          )
-         SELECT id AS personId, name, photoCount, faceCount
+         SELECT id AS personId, name, photoCount, faceCount, avgQuality
          FROM sizes
          WHERE faceCount > 0
-           AND (${includeNoise ? '1=1' : `faceCount >= 2 OR photoCount >= 2`})
+           AND (${includeNoise ? '1=1' : `(faceCount >= 2 OR photoCount >= 2)
+             AND avgQuality >= ${this.minAvgQuality}`})
          ORDER BY photoCount DESC, created_at ASC`,
       )
       .all() as PersonSummary[]
