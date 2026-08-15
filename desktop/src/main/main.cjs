@@ -165,6 +165,10 @@ function getLocalServices() {
     localServices = createLocalServices({
       dbPath: path.join(dataDir, 'picly.db'),
       thumbDir: path.join(dataDir, 'thumbs'),
+      // "Better absent than blurry": drop faces with eDifFIQA below 0.25 at
+      // scan time so blurry rectangles never reach the UI/DB. Faces below this
+      // are not stored — only the usable faces remain (and get optimized).
+      minFaceQuality: 0.25,
     });
   }
   return localServices;

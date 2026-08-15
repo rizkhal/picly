@@ -59,6 +59,14 @@ export interface ScanOptions {
    *  and the scanner MUST agree on it — otherwise the renderer sees two rows
    *  (one from startScan's id, one from the events). */
   scanId?: string
+  /**
+   * Drop faces whose eDifFIQA (quality_score) is below this before storing.
+   * "Better absent than blurry": blurry detections are neither shown as
+   * rectangles nor stored, so photos end up with only usable faces and the
+   * face filter only shows people worth recognizing. Set to 0 to keep every
+   * detection. Default 0 (keep everything — existing behavior).
+   */
+  minFaceQuality?: number
 }
 
 const hasherPromise = xxhash()
@@ -177,7 +185,12 @@ export async function scanFolder(
       }
 
       const faces = await analysis.detect(filePath)
-      if (faces.length === 0) continue
+      const minQ = options.minFaceQuality ?? 0
+      // "Better absent than blurry": drop detections below the eDifFIQA floor
+      // so blurry rectangles never reach the UI/DB and the remaining faces are
+      // the ones we want to optimize for.
+      const kept = minQ > 0 ? faces.filter((f) => f.qualityScore >= minQ) : faces
+      if (kept.length === 0) continue
       if (checkCancel()) break // stop before writing thumb/crops
 
       const photoId = randomUUID()
@@ -188,16 +201,16 @@ export async function scanFolder(
       // stop point; once a file is past detect it finishes writing.
 
       // Assign stable face ids first so each crop file can share the face id name.
-      const faceIds = faces.map(() => randomUUID())
+      const faceIds = kept.map(() => randomUUID())
       await Promise.all(
-        faces.map((face, i) =>
+        kept.map((face, i) =>
           makeFaceCrop(filePath, path.join(options.thumbDir, `${faceIds[i]}.jpg`), face.bbox, FACE_CROP_SIZE, width, height),
         ),
       )
 
       const results = store.addPhotoWithFaces(
         { id: photoId, path: filePath, width, height, thumbPath, contentHash: hash },
-        faces.map((face, i) => ({
+        kept.map((face, i) => ({
           id: faceIds[i],
           photoId,
           x1: Math.round(face.bbox[0]),
@@ -213,7 +226,7 @@ export async function scanFolder(
       if (results === null) continue // path appeared mid-scan; treat as duplicate
       personCount += results.filter((r) => r.isNewPerson).length
       progress.scanned += 1
-      progress.totalFaces += faces.length
+      progress.totalFaces += kept.length
       progress.persons = personCount
       emit()
     } catch (e) {

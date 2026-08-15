@@ -54,6 +54,7 @@ async function main() {
 
   const summary = await scanFolder(store, DIR, analysis, {
     thumbDir,
+    minFaceQuality: 0.25,
     onProgress: (p) => {
       if (p.processed % 5 === 0 || p.processed === p.total)
         console.log(`  scan ${p.processed}/${p.total} faces=${p.totalFaces} persons=${p.persons}`)

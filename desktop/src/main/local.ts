@@ -15,6 +15,9 @@ import { scanFolder, type ScanProgress, type ScanSummary } from './scanner'
 export interface LocalConfig {
   dbPath: string
   thumbDir: string
+  /** Drop faces with eDifFIQA below this at scan time ("better absent than
+   *  blurry"). 0 keeps every detection. */
+  minFaceQuality?: number
 }
 
 export interface LocalServices {
@@ -67,6 +70,7 @@ export function startScan(
     const analysis = await services.getAnalysis()
     return scanFolder(services.store, folderPath, analysis, {
       thumbDir: services.config.thumbDir,
+      minFaceQuality: services.config.minFaceQuality,
       onProgress,
       shouldCancel: () => cancelled,
       // Pass OUR id so progress events + summary carry the same id the renderer
