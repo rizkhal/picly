@@ -16,20 +16,20 @@ export default function App() {
   const library = useLibrary()
   const {
     persons, personPreviews, folders, photos, setPhotos,
-    loading, setLoading, driveStatus, scopeRef, noFaceCount,
+    loading, setLoading, driveStatus, scopeRef, trashCount,
     showSingletons, toggleShowSingletons,
-    loadFolders, loadPersons, loadPhotos, loadNoFacePhotos, loadNoFaceCount, searchFace,
+    loadFolders, loadPersons, loadPhotos, loadTrashPhotos, loadTrashCount, searchFace,
   } = library
 
   // Scan engine: 3-state (pause/resume/hapus) + progress subscription
   const refreshAfterScan = useCallback(() => {
     loadPersons()
     loadFolders()
-    loadNoFaceCount()
+    loadTrashCount()
     setTimeout(() => {
       loadPhotos(scopeRef.current.person, null, scopeRef.current.folder)
     }, 300)
-  }, [loadPersons, loadFolders, loadNoFaceCount, loadPhotos, scopeRef])
+  }, [loadPersons, loadFolders, loadTrashCount, loadPhotos, scopeRef])
   const scans = useScans(refreshAfterScan)
   const {
     activeScans, dismissedScans, scanning, scanFolder,
@@ -47,7 +47,7 @@ export default function App() {
   // Selection state
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null)
-  const [noFacesSelected, setNoFacesSelected] = useState(false)
+  const [trashSelected, setTrashSelected] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchFacesDetected, setSearchFacesDetected] = useState<number | null>(null)
   const [searchMatchedPersons, setSearchMatchedPersons] = useState<string[]>([])
@@ -60,36 +60,36 @@ export default function App() {
 
   // Track the current person/folder/no-faces scope for scan-completion refresh
   useEffect(() => {
-    scopeRef.current = { person: selectedPerson, folder: selectedFolder?.container_path || null, noFaces: noFacesSelected }
-  }, [selectedPerson, selectedFolder, noFacesSelected, scopeRef])
+    scopeRef.current = { person: selectedPerson, folder: selectedFolder?.container_path || null, trash: trashSelected }
+  }, [selectedPerson, selectedFolder, trashSelected, scopeRef])
 
   // Load everything on mount
   useEffect(() => {
     loadPersons()
     loadFolders()
-    loadNoFaceCount()
+    loadTrashCount()
     checkForUpdate(true)
     recoverScans()
-  }, [loadPersons, loadFolders, loadNoFaceCount, checkForUpdate, recoverScans])
+  }, [loadPersons, loadFolders, loadTrashCount, checkForUpdate, recoverScans])
 
   // Re-scan mounts when the window regains focus (drives can be plugged/unplugged)
   useEffect(() => {
-    const onFocus = () => { loadFolders(); loadNoFaceCount(); recoverScans() }
+    const onFocus = () => { loadFolders(); loadTrashCount(); recoverScans() }
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
-  }, [loadFolders, loadNoFaceCount, recoverScans])
+  }, [loadFolders, loadTrashCount, recoverScans])
 
   // Handle person selection
   const handlePersonClick = (personId: string) => {
     if (selectedPerson === personId) {
       setSelectedPerson(null)
       setSelectedFolder(null)
-      setNoFacesSelected(false)
+      setTrashSelected(false)
       setPhotos([])
     } else {
       setSelectedPerson(personId)
       setSelectedFolder(null)
-      setNoFacesSelected(false)
+      setTrashSelected(false)
       loadPhotos(personId)
     }
   }
@@ -99,28 +99,28 @@ export default function App() {
     if (selectedFolder?.folder_id === folder.folder_id) {
       setSelectedFolder(null)
       setSelectedPerson(null)
-      setNoFacesSelected(false)
+      setTrashSelected(false)
       setPhotos([])
     } else {
       setSelectedFolder(folder)
       setSelectedPerson(null)
-      setNoFacesSelected(false)
+      setTrashSelected(false)
       loadPhotos(null, null, folder.container_path)
     }
   }
 
-  // Handle "No faces" selection — photos with no detected faces
-  const handleNoFacesClick = () => {
-    if (noFacesSelected) {
-      setNoFacesSelected(false)
+  // Handle "Trash" selection — soft-deleted photos (restore / empty trash)
+  const handleTrashClick = () => {
+    if (trashSelected) {
+      setTrashSelected(false)
       setSelectedFolder(null)
       setSelectedPerson(null)
       setPhotos([])
     } else {
-      setNoFacesSelected(true)
+      setTrashSelected(true)
       setSelectedFolder(null)
       setSelectedPerson(null)
-      loadNoFacePhotos()
+      loadTrashPhotos()
     }
   }
 
@@ -136,7 +136,7 @@ export default function App() {
       setSearchMatchedPersons(res.matchedPersons)
       setSelectedPerson(null)
       setSelectedFolder(null)
-      setNoFacesSelected(false)
+      setTrashSelected(false)
     } catch (err) {
       console.error('Search failed', err)
       setScanError('Search gagal — coba lagi.')
@@ -169,7 +169,7 @@ export default function App() {
     }
     await loadFolders()
     await loadPersons()
-    loadNoFaceCount()
+    loadTrashCount()
     loadPhotos(scopeRef.current.person, null, scopeRef.current.folder)
   }
 
@@ -180,7 +180,8 @@ export default function App() {
     setPhotoIndex(idx >= 0 ? idx : 0)
   }
 
-  // Delete photo + refresh current scope
+  // Delete photo (move to Trash) + refresh current scope
+  // Delete photo (move to Trash) + refresh current scope
   const handleDeletePhoto = async () => {
     if (!selectedPhoto) return
     try {
@@ -192,7 +193,33 @@ export default function App() {
     loadPhotos(selectedPerson, null, selectedFolder?.container_path || null)
     loadPersons()
     loadFolders()
-    loadNoFaceCount()
+    loadTrashCount()
+  }
+
+  // Restore a photo from the Trash back to the live library
+  const handleRestorePhoto = async (photoId: string) => {
+    try {
+      await ipc.local.restorePhoto(photoId)
+    } catch (e) {
+      console.error('Restore photo failed', e)
+    }
+    loadTrashPhotos()
+    loadPersons()
+    loadTrashCount()
+  }
+
+  // Permanently delete all trashed photos
+  const handleEmptyTrash = async () => {
+    if (!confirm('Hapus permanen semua foto di Trash?')) return
+    try {
+      await ipc.local.emptyTrash()
+    } catch (e) {
+      console.error('Empty trash failed', e)
+    }
+    loadTrashPhotos()
+    loadPersons()
+    loadFolders()
+    loadTrashCount()
   }
 
   // Navigate the modal to another photo in the current scope (keyboard/rail)
@@ -219,13 +246,15 @@ export default function App() {
         onRescanFolder={(folder) => rescanFolder(folder.host_path)}
         scanning={scanning}
         onAddFolder={scanFolder}
-        noFaceCount={noFaceCount}
-        noFacesSelected={noFacesSelected}
-        onNoFacesClick={handleNoFacesClick}
+        trashCount={trashCount}
+        trashSelected={trashSelected}
+        onTrashClick={handleTrashClick}
         driveStatus={driveStatus}
         personCount={persons.length}
         authEmail={authStatus.loggedIn ? authStatus.email : null}
         onOpenSettings={() => setSettingsOpen(true)}
+        onRestorePhoto={handleRestorePhoto}
+        onEmptyTrash={handleEmptyTrash}
       />
 
       {/* Main content */}
@@ -299,6 +328,38 @@ export default function App() {
               {loading ? (
                 <div className="loading-overlay">
                   <div className="spinner" />
+                </div>
+              ) : trashSelected ? (
+                <div className="trash-view">
+                  <div className="trash-toolbar">
+                    <div className="trash-title">Trash — {photos.length} foto dihapus</div>
+                    {photos.length > 0 && (
+                      <button className="btn btn-danger" onClick={handleEmptyTrash}>
+                        Empty Trash
+                      </button>
+                    )}
+                  </div>
+                  {photos.length === 0 ? (
+                    <div className="empty">
+                      <h3>Trash kosong</h3>
+                      <p>Foto yang dihapus muncul di sini sampai di-restore atau dihapus permanen.</p>
+                    </div>
+                  ) : (
+                    <div className="trash-grid">
+                      {photos.map((p) => (
+                        <div key={p.photo_id} className="trash-card">
+                          <img src={p.thumb_path || `picly://thumb/${p.photo_id}.jpg`} alt="" loading="lazy" />
+                          <button
+                            className="btn trash-restore-btn"
+                            onClick={() => handleRestorePhoto(p.photo_id)}
+                            title="Kembalikan ke library"
+                          >
+                            Restore
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ) : photos.length === 0 ? (
                 <div className="empty">

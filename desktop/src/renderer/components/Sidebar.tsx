@@ -100,13 +100,15 @@ type SidebarProps = {
   onRescanFolder: (folder: FolderT) => void
   scanning: boolean
   onAddFolder: () => void
-  noFaceCount: number
-  noFacesSelected: boolean
-  onNoFacesClick: () => void
+  trashCount: number
+  trashSelected: boolean
+  onTrashClick: () => void
   driveStatus: string
   personCount: number
   onOpenSettings: () => void
   authEmail?: string | null
+  onRestorePhoto: (photoId: string) => void
+  onEmptyTrash: () => void
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -115,7 +117,7 @@ export function Sidebar(props: SidebarProps) {
     activeScans, dismissedScans, onPause, onResume, onRemove, onDismiss,
     folders, selectedFolder, onFolderClick, onRemoveFolder,
     onRescanFolder, scanning, onAddFolder,
-    noFaceCount, noFacesSelected, onNoFacesClick,
+    trashCount, trashSelected, onTrashClick,
     driveStatus, personCount, onOpenSettings, authEmail,
   } = props
   const visibleScans = activeScans.filter((s) => !dismissedScans.has(s.scan_id))
@@ -192,18 +194,18 @@ export function Sidebar(props: SidebarProps) {
         </div>
       </div>
 
-      {/* Bottom: pinned "No faces" scope + API status */}
+      {/* Bottom: pinned "Trash" scope + API status */}
       <div className="sidebar-bottom">
         <div className="sidebar-section">
           <div
-            className={`nav-item no-faces-item ${noFacesSelected ? 'active' : ''}`}
-            onClick={onNoFacesClick}
-            title="Foto yang ter-index tapi tidak ada wajah terdeteksi"
+            className={`nav-item trash-item ${trashSelected ? 'active' : ''}`}
+            onClick={onTrashClick}
+            title="Foto yang dipindah ke Trash (soft-delete, bisa di-restore)"
           >
-            <Aperture size={16} className="nav-icon" />
+            <Trash size={16} className="nav-icon" />
             <div className="disk-info">
-              <div className="disk-name">No faces</div>
-              <div className="disk-space">{noFaceCount} photos</div>
+              <div className="disk-name">Trash</div>
+              <div className="disk-space">{trashCount} photos</div>
             </div>
           </div>
         </div>

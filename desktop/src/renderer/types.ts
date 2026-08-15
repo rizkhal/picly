@@ -43,6 +43,15 @@ export type ScanProgress = {
 
 export type PersonPreview = { person_id: string; name: string; photo_count: number; face_id?: string }
 
+/** A photo that was moved to the Trash (soft-deleted) and can be restored. */
+export type TrashView = {
+  photo_id: string
+  path: string
+  thumb_path?: string
+  width?: number | null
+  height?: number | null
+}
+
 export type AuthStatus = { loggedIn: boolean; email: string | null }
 
 export type UpdateInfo = {

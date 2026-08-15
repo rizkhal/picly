@@ -1209,3 +1209,66 @@ html, body, #root {
   display: block;
   border-radius: 50%;
 }
+
+/* Trash view — soft-deleted photos with Restore / Empty Trash */
+.trash-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+
+.trash-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trash-title {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.trash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.trash-card {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+  aspect-ratio: 1;
+}
+
+.trash-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0.6;
+  filter: grayscale(0.5);
+}
+
+.trash-restore-btn {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.trash-card:hover .trash-restore-btn { opacity: 1; }

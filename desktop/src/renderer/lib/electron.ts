@@ -188,6 +188,64 @@ export const local = {
     }
   },
 
+  async trashPhotos(photoIds: string[]): Promise<void> {
+    const api = bridge()
+    if (!api?.local?.trashPhotos) return
+    try {
+      await api.local.trashPhotos(photoIds)
+    } catch (e) {
+      console.error('trashPhotos failed', photoIds.length, e)
+    }
+  },
+
+  async listTrashedPhotos(): Promise<Photo[]> {
+    const api = bridge()
+    if (!api?.local?.listTrashedPhotos) return []
+    try {
+      const rows = await api.local.listTrashedPhotos()
+      return (rows || []).map((p: any) => ({ ...p, photo_id: p.photoId || p.photo_id, thumb_path: p.thumbUrl ?? p.thumbPath }))
+    } catch (e) {
+      console.error('listTrashedPhotos failed', e)
+      return []
+    }
+  },
+
+  async countTrashed(): Promise<number> {
+    const api = bridge()
+    if (!api?.local?.countTrashed) return 0
+    try {
+      const n = await api.local.countTrashed()
+      return typeof n === 'number' ? n : 0
+    } catch (e) {
+      console.error('countTrashed failed', e)
+      return 0
+    }
+  },
+
+  async restorePhoto(photoId: string): Promise<boolean> {
+    const api = bridge()
+    if (!api?.local?.restorePhoto) return false
+    try {
+      const ok = await api.local.restorePhoto(photoId)
+      return !!ok
+    } catch (e) {
+      console.error('restorePhoto failed', photoId, e)
+      return false
+    }
+  },
+
+  async emptyTrash(): Promise<number> {
+    const api = bridge()
+    if (!api?.local?.emptyTrash) return 0
+    try {
+      const n = await api.local.emptyTrash()
+      return typeof n === 'number' ? n : 0
+    } catch (e) {
+      console.error('emptyTrash failed', e)
+      return 0
+    }
+  },
+
   async searchPhoto(filePath: string): Promise<any> {
     const api = bridge()
     if (!api?.local?.searchPhoto) return null

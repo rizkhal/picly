@@ -7,11 +7,11 @@ export function useLibrary() {
   const [personPreviews, setPersonPreviews] = useState<PersonPreview[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
   const [photos, setPhotos] = useState<Photo[]>([])
-  const [noFaceCount, setNoFaceCount] = useState(0)
+  const [trashCount, setTrashCount] = useState(0)
   const [showSingletons, setShowSingletons] = useState(false)
   const [loading, setLoading] = useState(false)
   const [driveStatus, setDriveStatus] = useState('Checking...')
-  const scopeRef = useRef<{ person: string | null; folder: string | null; noFaces: boolean }>({ person: null, folder: null, noFaces: false })
+  const scopeRef = useRef<{ person: string | null; folder: string | null; trash: boolean }>({ person: null, folder: null, trash: false })
 
   // Load folders added via '+ Add folder' (local store)
   const loadFolders = useCallback(async () => {
@@ -19,10 +19,10 @@ export function useLibrary() {
     setFolders(rows)
   }, [])
 
-  // Load no-face count (sidebar badge) — refresh after scans/deletes.
-  const loadNoFaceCount = useCallback(async () => {
-    const n = await ipc.local.countNoFacePhotos()
-    setNoFaceCount(n)
+  // Load trash count (sidebar badge) — refresh after scans/deletes/restores.
+  const loadTrashCount = useCallback(async () => {
+    const n = await ipc.local.countTrashed()
+    setTrashCount(n)
   }, [])
 
   // Load persons (local store) + face crop previews (one representative face each)
@@ -67,14 +67,14 @@ export function useLibrary() {
     }
   }, [])
 
-  // Load photos with no detected faces (the "No faces" scope).
-  const loadNoFacePhotos = useCallback(async () => {
+  // Load photos in the Trash (the "Trash" scope).
+  const loadTrashPhotos = useCallback(async () => {
     setLoading(true)
     try {
-      const rows = await ipc.local.listNoFacePhotos()
+      const rows = await ipc.local.listTrashedPhotos()
       setPhotos(rows)
     } catch (e) {
-      console.error('Failed to load no-face photos', e)
+      console.error('Failed to load trash photos', e)
     } finally {
       setLoading(false)
     }
@@ -130,7 +130,7 @@ export function useLibrary() {
     folders,
     photos,
     setPhotos,
-    noFaceCount,
+    trashCount,
     showSingletons,
     toggleShowSingletons,
     loading,
@@ -140,8 +140,8 @@ export function useLibrary() {
     loadFolders,
     loadPersons,
     loadPhotos,
-    loadNoFacePhotos,
-    loadNoFaceCount,
+    loadTrashPhotos,
+    loadTrashCount,
     searchFace,
   }
 }

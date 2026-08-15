@@ -287,8 +287,9 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
           <button
             className="btn btn-danger"
             onClick={onDeletePhoto}
+            title="Pindah ke Trash (bisa di-restore)"
           >
-            Delete photo
+            Pindah ke Trash
           </button>
         </div>
       </div>

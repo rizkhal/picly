@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS photos (
     height INTEGER,
     thumb_path TEXT,
     content_hash TEXT UNIQUE,
+    deleted_at TEXT,                  -- soft-delete: NULL = live, set = trashed
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

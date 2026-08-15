@@ -18,6 +18,10 @@ function migrate(db: Database.Database): void {
   if (!cols.has('face_quality')) db.exec(`ALTER TABLE faces ADD COLUMN face_quality TEXT NOT NULL DEFAULT 'medium'`)
   if (!cols.has('low_quality')) db.exec(`ALTER TABLE faces ADD COLUMN low_quality INTEGER NOT NULL DEFAULT 0`)
   if (!cols.has('quality_score')) db.exec(`ALTER TABLE faces ADD COLUMN quality_score REAL NOT NULL DEFAULT 0.5`)
+  const photoCols = new Set(
+    (db.prepare(`PRAGMA table_info(photos)`).all() as Array<{ name: string }>).map((c) => c.name),
+  )
+  if (!photoCols.has('deleted_at')) db.exec(`ALTER TABLE photos ADD COLUMN deleted_at TEXT`)
 }
 
 export const CLUSTER_MATCH_THRESHOLD = 0.5
@@ -195,7 +199,7 @@ export class PhotoStore {
       .prepare(
         `SELECT f.id AS folderId, f.host_path AS hostPath, f.name, f.last_scanned_at AS lastScannedAt,
                 COUNT(p.id) AS photoCount
-         FROM folders f LEFT JOIN photos p ON p.path LIKE f.host_path || '/%'
+         FROM folders f LEFT JOIN photos p ON p.path LIKE f.host_path || '/%' AND p.deleted_at IS NULL
          GROUP BY f.id ORDER BY f.added_at DESC`,
       )
       .all() as Array<{ folderId: string; hostPath: string; name: string; lastScannedAt: string | null; photoCount: number }>
@@ -207,7 +211,53 @@ export class PhotoStore {
       .run(hostPath)
   }
 
-  /** Delete a folder and every photo (cascade faces) under it. */
+  // ----------------------------------------------------------------- photos
+
+  /** Insert a photo; returns false when the path already exists (skip). */
+  addPhoto(photo: AddPhotoInput): boolean {
+    const exists = this.db.prepare(`SELECT 1 FROM photos WHERE path = ?`).get(photo.path)
+    if (exists) return false
+    this.db
+      .prepare(
+        `INSERT INTO photos (id, path, width, height, thumb_path, content_hash)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(photo.id ?? randomUUID(), photo.path, photo.width ?? null, photo.height ?? null, photo.thumbPath ?? null, photo.contentHash ?? null)
+    return true
+  }
+
+  hasPhotoPath(path: string): boolean {
+    // Only live photos count as duplicates — a trashed photo can be re-indexed
+    // by a re-scan and comes back as a fresh (live) row again.
+    return !!this.db.prepare(`SELECT 1 FROM photos WHERE path = ? AND deleted_at IS NULL`).get(path)
+  }
+
+  hasPhotoHash(hash: string): boolean {
+    return !!this.db.prepare(`SELECT 1 FROM photos WHERE content_hash = ?`).get(hash)
+  }
+
+  getPhoto(photoId: string): { photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null } | null {
+    const row = this.db
+      .prepare(`SELECT id AS photoId, path, thumb_path AS thumbPath, width, height FROM photos WHERE id = ?`)
+      .get(photoId) as { photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null } | undefined
+    return row ?? null
+  }
+
+  /**
+   * Soft-delete a photo (move to Trash): keep the row + faces so it can be
+   * restored. Thumb/crop files stay on disk — cleanup happens on emptyTrash.
+   */
+  deletePhoto(photoId: string): void {
+    this.db.prepare(`UPDATE photos SET deleted_at = datetime('now') WHERE id = ?`).run(photoId)
+    this.invalidate()
+  }
+
+  /**
+   * Permanently delete a folder and every photo under it (cascade faces).
+   * This is a hard delete (not Trash): the user explicitly removes the folder
+   * from the sidebar, so its indexed photos leave the library entirely. Per-
+   * photo deletes use deletePhoto (Trash) instead.
+   */
   deleteFolder(hostPath: string): number {
     const prefix = hostPath.replace(/\/+$/, '') + '/'
     const del = this.db.transaction(() => {
@@ -233,48 +283,6 @@ export class PhotoStore {
     const n = del()
     this.invalidate()
     return n
-  }
-
-  // ----------------------------------------------------------------- photos
-
-  /** Insert a photo; returns false when the path already exists (skip). */
-  addPhoto(photo: AddPhotoInput): boolean {
-    const exists = this.db.prepare(`SELECT 1 FROM photos WHERE path = ?`).get(photo.path)
-    if (exists) return false
-    this.db
-      .prepare(
-        `INSERT INTO photos (id, path, width, height, thumb_path, content_hash)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(photo.id ?? randomUUID(), photo.path, photo.width ?? null, photo.height ?? null, photo.thumbPath ?? null, photo.contentHash ?? null)
-    return true
-  }
-
-  hasPhotoPath(path: string): boolean {
-    return !!this.db.prepare(`SELECT 1 FROM photos WHERE path = ?`).get(path)
-  }
-
-  hasPhotoHash(hash: string): boolean {
-    return !!this.db.prepare(`SELECT 1 FROM photos WHERE content_hash = ?`).get(hash)
-  }
-
-  getPhoto(photoId: string): { photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null } | null {
-    const row = this.db
-      .prepare(`SELECT id AS photoId, path, thumb_path AS thumbPath, width, height FROM photos WHERE id = ?`)
-      .get(photoId) as { photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null } | undefined
-    return row ?? null
-  }
-
-  deletePhoto(photoId: string): void {
-    const row = this.db.prepare(`SELECT thumb_path AS thumbPath FROM photos WHERE id = ?`).get(photoId) as { thumbPath: string | null } | undefined
-    // Also unlink this photo's face crop files (named <faceId>.jpg).
-    const faceIds = (this.db.prepare(`SELECT id FROM faces WHERE photo_id = ?`).all(photoId) as Array<{ id: string }>).map((r) => r.id)
-    this.db.prepare(`DELETE FROM photos WHERE id = ?`).run(photoId)
-    if (row?.thumbPath) this.unlinkThumb(row.thumbPath)
-    if (this.thumbDir) {
-      for (const faceId of faceIds) this.unlinkThumb(path.join(this.thumbDir, `${faceId}.jpg`))
-    }
-    this.invalidate()
   }
 
   /**
@@ -335,12 +343,12 @@ export class PhotoStore {
   listFolderPhotos(hostPath: string): Array<{ photoId: string; path: string; thumbPath: string | null }> {
     const prefix = hostPath.replace(/\/+$/, '') + '/'
     return this.db
-      .prepare(`SELECT id AS photoId, path, thumb_path AS thumbPath FROM photos WHERE path LIKE ?`)
+      .prepare(`SELECT id AS photoId, path, thumb_path AS thumbPath FROM photos WHERE path LIKE ? AND deleted_at IS NULL`)
       .all(prefix + '%') as Array<{ photoId: string; path: string; thumbPath: string | null }>
   }
 
   listPhotos(folderPath?: string, limit = 500, offset = 0): unknown[] {
-    const where = folderPath ? `WHERE p.path LIKE ?` : ''
+    const where = folderPath ? `WHERE p.path LIKE ? AND p.deleted_at IS NULL` : `WHERE p.deleted_at IS NULL`
     const params: unknown[] = folderPath ? [folderPath.replace(/\/+$/, '') + '/%', limit, offset] : [limit, offset]
     return this.db
       .prepare(
@@ -360,7 +368,7 @@ export class PhotoStore {
         `SELECT DISTINCT p.id AS photoId, p.path, p.thumb_path AS thumbPath, p.width, p.height
          FROM faces f
          JOIN photos p ON p.id = f.photo_id
-         WHERE f.person_id = ?
+         WHERE f.person_id = ? AND p.deleted_at IS NULL
          ORDER BY p.created_at DESC LIMIT ?`,
       )
       .all(personId, limit) as Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null }>
@@ -373,7 +381,7 @@ export class PhotoStore {
         `SELECT p.id AS photoId, p.path, p.thumb_path AS thumbPath, p.width, p.height
          FROM photos p
          LEFT JOIN faces f ON f.photo_id = p.id
-         WHERE f.id IS NULL
+         WHERE f.id IS NULL AND p.deleted_at IS NULL
          ORDER BY p.created_at DESC LIMIT ?`,
       )
       .all(limit) as Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null }>
@@ -383,10 +391,59 @@ export class PhotoStore {
   countPhotosNoFaces(): number {
     const row = this.db
       .prepare(
-        `SELECT COUNT(*) AS n FROM photos p LEFT JOIN faces f ON f.photo_id = p.id WHERE f.id IS NULL`,
+        `SELECT COUNT(*) AS n FROM photos p LEFT JOIN faces f ON f.photo_id = p.id WHERE f.id IS NULL AND p.deleted_at IS NULL`,
       )
       .get() as { n: number }
     return row.n
+  }
+
+  // -------------------------------------------------------------------- trash
+
+  /** Photos currently in the Trash (soft-deleted), newest first. */
+  listTrashedPhotos(limit = 500): Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null }> {
+    return this.db
+      .prepare(
+        `SELECT id AS photoId, path, thumb_path AS thumbPath, width, height
+         FROM photos WHERE deleted_at IS NOT NULL
+         ORDER BY deleted_at DESC LIMIT ?`,
+      )
+      .all(limit) as Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null }>
+  }
+
+  /** Number of photos in the Trash (sidebar badge). */
+  countTrashed(): number {
+    const row = this.db.prepare(`SELECT COUNT(*) AS n FROM photos WHERE deleted_at IS NOT NULL`).get() as { n: number }
+    return row.n
+  }
+
+  /** Bring a trashed photo back to the live library (faces stay intact). */
+  restorePhoto(photoId: string): boolean {
+    const info = this.db.prepare(`UPDATE photos SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL`).run(photoId)
+    if (info.changes > 0) this.invalidate()
+    return info.changes > 0
+  }
+
+  /**
+   * Permanently delete trashed photos + their face crops (faces cascade).
+   * Returns the number of photos purged.
+   */
+  emptyTrash(): number {
+    const rows = this.db.prepare(`SELECT id, thumb_path AS thumbPath FROM photos WHERE deleted_at IS NOT NULL`).all() as Array<{ id: string; thumbPath: string | null }>
+    if (rows.length === 0) return 0
+    const ids = rows.map((r) => r.id)
+    const placeholders = ids.map(() => '?').join(',')
+    const faceIds = (this.db
+      .prepare(`SELECT id FROM faces WHERE photo_id IN (${placeholders})`)
+      .all(...ids) as Array<{ id: string }>)
+      .map((r) => r.id)
+    this.db.prepare(`DELETE FROM photos WHERE deleted_at IS NOT NULL`).run()
+    this.invalidate()
+    // Clean up thumb + face-crop files for the purged photos.
+    for (const r of rows) if (r.thumbPath) this.unlinkThumb(r.thumbPath)
+    if (this.thumbDir) {
+      for (const faceId of faceIds) this.unlinkThumb(path.join(this.thumbDir, `${faceId}.jpg`))
+    }
+    return rows.length
   }
 
   /**
@@ -409,7 +466,7 @@ export class PhotoStore {
          SELECT pr.id AS personId, r.id AS faceId, p.path AS photoPath
          FROM persons pr
          JOIN ranked r ON r.person_id = pr.id AND r.rn = (r.cnt + 1) / 2
-         JOIN photos p ON p.id = r.photo_id
+         JOIN photos p ON p.id = r.photo_id AND p.deleted_at IS NULL
          WHERE pr.id IN (${placeholders})`,
       )
       .all(...ids) as Array<{ personId: string; faceId: string; photoPath: string | null }>
@@ -486,8 +543,9 @@ export class PhotoStore {
   clusterAllFaces(threshold = this.clusterLinkageThreshold): number {
     const rows = this.db
       .prepare(
-        `SELECT id AS faceId, photo_id AS photoId, embedding, face_quality AS faceQuality, low_quality AS lowQuality
-         FROM faces`,
+        `SELECT f.id AS faceId, f.photo_id AS photoId, f.embedding, f.face_quality AS faceQuality, f.low_quality AS lowQuality
+         FROM faces f JOIN photos p ON p.id = f.photo_id
+         WHERE p.deleted_at IS NULL`,
       )
       .all() as Array<{ faceId: string; photoId: string; embedding: Buffer | null; faceQuality: string; lowQuality: number }>
     if (rows.length === 0) return 0
@@ -727,10 +785,12 @@ export class PhotoStore {
       .prepare(
         `WITH sizes AS (
            SELECT p.id, p.name, p.created_at,
-                  COUNT(DISTINCT f.photo_id) AS photoCount,
-                  COUNT(f.id) AS faceCount,
-                  AVG(f.quality_score) AS avgQuality
-           FROM persons p LEFT JOIN faces f ON f.person_id = p.id
+                  COUNT(DISTINCT CASE WHEN ph.deleted_at IS NULL THEN f.photo_id END) AS photoCount,
+                  COUNT(CASE WHEN ph.deleted_at IS NULL THEN f.id END) AS faceCount,
+                  AVG(CASE WHEN ph.deleted_at IS NULL THEN f.quality_score END) AS avgQuality
+           FROM persons p
+           LEFT JOIN faces f ON f.person_id = p.id
+           LEFT JOIN photos ph ON ph.id = f.photo_id
            GROUP BY p.id
          )
          SELECT id AS personId, name, photoCount, faceCount, avgQuality
@@ -884,8 +944,8 @@ export class PhotoStore {
   stats(): { photos: number; faces: number; persons: number; folders: number } {
     const one = (sql: string) => (this.db.prepare(sql).get() as { n: number }).n
     return {
-      photos: one('SELECT COUNT(*) AS n FROM photos'),
-      faces: one('SELECT COUNT(*) AS n FROM faces'),
+      photos: one('SELECT COUNT(*) AS n FROM photos WHERE deleted_at IS NULL'),
+      faces: one('SELECT COUNT(*) AS n FROM faces f JOIN photos p ON p.id = f.photo_id WHERE p.deleted_at IS NULL'),
       persons: one('SELECT COUNT(*) AS n FROM persons'),
       folders: one('SELECT COUNT(*) AS n FROM folders'),
     }
@@ -896,7 +956,11 @@ export class PhotoStore {
   private loadFacesCache(): FaceCacheRow[] {
     if (this.facesCache) return this.facesCache
     const rows = this.db
-      .prepare(`SELECT id AS faceId, photo_id AS photoId, person_id AS personId, embedding FROM faces`)
+      .prepare(
+        `SELECT f.id AS faceId, f.photo_id AS photoId, f.person_id AS personId, f.embedding
+         FROM faces f JOIN photos p ON p.id = f.photo_id
+         WHERE p.deleted_at IS NULL`,
+      )
       .all() as Array<{ faceId: string; photoId: string; personId: string | null; embedding: Buffer }>
     this.facesCache = rows.map((r) => ({ faceId: r.faceId, photoId: r.photoId, personId: r.personId, embedding: blobToEmbedding(r.embedding) }))
     return this.facesCache

@@ -210,6 +210,15 @@ function registerLocalIpc() {
     getLocalServices().store.deletePhoto(photoId);
     return true;
   });
+  ipcMain.handle('local:trash-photos', (_e, photoIds) => {
+    const store = getLocalServices().store;
+    for (const id of photoIds || []) store.deletePhoto(id);
+    return true;
+  });
+  ipcMain.handle('local:list-trash', () => require('../../dist-main/local.js').listTrashedPhotos(getLocalServices()));
+  ipcMain.handle('local:count-trash', () => getLocalServices().store.countTrashed());
+  ipcMain.handle('local:restore-photo', (_e, photoId) => require('../../dist-main/local.js').restorePhoto(getLocalServices(), photoId));
+  ipcMain.handle('local:empty-trash', () => require('../../dist-main/local.js').emptyTrash(getLocalServices()));
   ipcMain.handle('local:rename-person', (_e, personId, name) => {
     getLocalServices().store.renamePerson(personId, name);
     return true;

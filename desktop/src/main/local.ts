@@ -168,6 +168,28 @@ export function countPhotosNoFaces(services: LocalServices): number {
   return services.store.countPhotosNoFaces()
 }
 
+// -------------------------------------------------------------------- trash
+
+/** Photos in the Trash (soft-deleted), thumbs mapped to picly:// URLs. */
+export function listTrashedPhotos(services: LocalServices, limit = 500): unknown[] {
+  return services.store.listTrashedPhotos(limit).map((p) => ({
+    ...p,
+    thumbUrl: p.thumbPath ? `picly://thumb/${path.basename(p.thumbPath)}` : null,
+  }))
+}
+
+export function countTrashed(services: LocalServices): number {
+  return services.store.countTrashed()
+}
+
+export function restorePhoto(services: LocalServices, photoId: string): boolean {
+  return services.store.restorePhoto(photoId)
+}
+
+export function emptyTrash(services: LocalServices): number {
+  return services.store.emptyTrash()
+}
+
 /** Face crop previews for a set of persons, mapped to picly://face URLs. */
 export function listPersonPreviews(services: LocalServices, ids: string[]): unknown[] {
   return services.store.listPersonPreviews(ids).map((p) => ({
