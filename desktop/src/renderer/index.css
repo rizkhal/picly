@@ -753,6 +753,8 @@ html, body, #root {
 
 .scan-stage-badge .stage-spinner {
   flex-shrink: 0;
+  border-color: color-mix(in srgb, currentColor 40%, transparent);
+  border-top-color: currentColor;
   animation: spin 0.8s linear infinite;
 }
 

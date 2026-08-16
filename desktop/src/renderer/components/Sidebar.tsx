@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Folder, Trash, GearSix, Aperture, ArrowClockwise, Plus } from '@phosphor-icons/react'
 import type { Folder as FolderT, PersonPreview } from '../types'
-import { Spinner } from './Spinner'
 
 type SidebarProps = {
   scanError: string | null
@@ -10,7 +9,6 @@ type SidebarProps = {
   onFolderClick: (folder: FolderT) => void
   onRemoveFolder: (folder: FolderT) => void
   onRescanFolder: (folder: FolderT) => void
-  scanning: boolean
   onAddFolder: () => void
   onManagePhotos?: () => void
   trashCount: number
@@ -29,7 +27,7 @@ export function Sidebar(props: SidebarProps) {
   const {
     scanError,
     folders, selectedFolder, onFolderClick, onRemoveFolder,
-    onRescanFolder, scanning, onAddFolder, onManagePhotos,
+    onRescanFolder, onAddFolder, onManagePhotos,
     trashCount, trashSelected, onTrashClick,
     driveStatus, personCount, onOpenSettings, authEmail, onLogoClick,
   } = props
@@ -74,17 +72,15 @@ export function Sidebar(props: SidebarProps) {
                 <button
                   className="icon-btn"
                   onClick={() => setMenuOpen((v) => !v)}
-                  disabled={scanning}
-                  title={scanning ? 'Scanning in progress…' : 'Folder options'}
+                  title="Folder options"
                 >
-                  {scanning ? <Spinner /> : <Plus size={14} weight="bold" />}
+                  <Plus size={14} weight="bold" />
                 </button>
                 {menuOpen && (
                   <div className="sidebar-title-dropdown">
                     <button
                       className="sidebar-title-dropdown-item"
                       onClick={() => { setMenuOpen(false); onAddFolder() }}
-                      disabled={scanning}
                     >
                       <Plus size={13} /> Add folder
                     </button>
