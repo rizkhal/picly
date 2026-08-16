@@ -1108,6 +1108,105 @@ export class PhotoStore {
     }
   }
 
+  // ------------------------------------------------------------- cleanup
+
+  /**
+   * Counts of the cleanup candidates. The manage-photos page shows these so
+   * the user knows what will be removed BEFORE confirming (all irreversible).
+   */
+  cleanupStats(): {
+    unassignedFaces: number
+    lowQualityFaces: number
+    duplicateGroups: number
+    duplicatePhotos: number
+    emptyPersons: number
+    orphanThumbs: number
+  } {
+    const one = (sql: string, ...params: unknown[]) => (this.db.prepare(sql).get(...params) as { n: number }).n
+    const unassignedFaces = one(
+      `SELECT COUNT(*) AS n FROM faces f JOIN photos p ON p.id = f.photo_id WHERE f.person_id IS NULL AND p.deleted_at IS NULL`,
+    )
+    const lowQualityFaces = one(
+      `SELECT COUNT(*) AS n FROM faces f JOIN photos p ON p.id = f.photo_id WHERE f.face_quality = 'very_low' AND p.deleted_at IS NULL`,
+    )
+    const dup = this.db
+      .prepare(`SELECT content_hash, COUNT(*) AS n FROM photos WHERE deleted_at IS NULL AND content_hash IS NOT NULL GROUP BY content_hash HAVING n > 1`)
+      .all() as Array<{ content_hash: string; n: number }>
+    const duplicatePhotos = dup.reduce((s, d) => s + d.n, 0)
+    const emptyPersons = one(`SELECT COUNT(*) AS n FROM persons WHERE id NOT IN (SELECT DISTINCT person_id FROM faces WHERE person_id IS NOT NULL)`)
+
+    let orphanThumbs = 0
+    if (this.thumbDir) {
+      const validIds = new Set<string>()
+      for (const r of this.db.prepare(`SELECT thumb_path FROM photos WHERE thumb_path IS NOT NULL`).all() as Array<{ thumb_path: string }>) {
+        validIds.add(path.basename(r.thumb_path).replace(/\.jpg$/, ''))
+      }
+      for (const r of this.db.prepare(`SELECT id FROM faces`).all() as Array<{ id: string }>) validIds.add(r.id)
+      try {
+        for (const name of readdirSync(this.thumbDir)) {
+          if (!/^[0-9a-f-]{36}\.jpg$/.test(name)) continue
+          if (!validIds.has(name.replace(/\.jpg$/, ''))) orphanThumbs += 1
+        }
+      } catch {
+        /* thumbDir missing — nothing to clean */
+      }
+    }
+
+    return { unassignedFaces, lowQualityFaces, duplicateGroups: dup.length, duplicatePhotos, emptyPersons, orphanThumbs }
+  }
+
+  /** Hard-delete faces with no person, unlinking their crop files. */
+  removeUnassignedFaces(): number {
+    const ids = (this.db
+      .prepare(`SELECT f.id AS faceId FROM faces f JOIN photos p ON p.id = f.photo_id WHERE f.person_id IS NULL AND p.deleted_at IS NULL`)
+      .all() as Array<{ faceId: string }>)
+      .map((r) => r.faceId)
+    if (ids.length === 0) return 0
+    const del = this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM faces WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids)
+      if (this.thumbDir) for (const id of ids) this.unlinkThumb(path.join(this.thumbDir, `${id}.jpg`))
+    })
+    del()
+    this.invalidate()
+    return ids.length
+  }
+
+  /** Hard-delete very_low-quality faces, unlinking their crop files. */
+  removeLowQualityFaces(): number {
+    const ids = (this.db
+      .prepare(`SELECT f.id AS faceId FROM faces f JOIN photos p ON p.id = f.photo_id WHERE f.face_quality = 'very_low' AND p.deleted_at IS NULL`)
+      .all() as Array<{ faceId: string }>)
+      .map((r) => r.faceId)
+    if (ids.length === 0) return 0
+    const del = this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM faces WHERE id IN (${ids.map(() => '?').join(',')})`).run(...ids)
+      if (this.thumbDir) for (const id of ids) this.unlinkThumb(path.join(this.thumbDir, `${id}.jpg`))
+    })
+    del()
+    this.invalidate()
+    return ids.length
+  }
+
+  /** Photos sharing the same content hash (true duplicates), newest first. */
+  listDuplicateGroups(): Array<{ hash: string; photos: Array<{ photoId: string; path: string; thumbPath: string | null }> }> {
+    const groups = this.db
+      .prepare(`SELECT content_hash FROM photos WHERE deleted_at IS NULL AND content_hash IS NOT NULL GROUP BY content_hash HAVING COUNT(*) > 1 ORDER BY MAX(created_at) DESC`)
+      .all() as Array<{ content_hash: string }>
+    const stmt = this.db.prepare(
+      `SELECT id AS photoId, path, thumb_path AS thumbPath FROM photos WHERE content_hash = ? AND deleted_at IS NULL ORDER BY created_at DESC`,
+    )
+    return groups.map((g) => ({ hash: g.content_hash, photos: stmt.all(g.content_hash) as Array<{ photoId: string; path: string; thumbPath: string | null }> }))
+  }
+
+  /** Hard-delete persons with no faces (invisible in the UI, safe). */
+  removeEmptyPersons(): number {
+    const info = this.db
+      .prepare(`DELETE FROM persons WHERE id NOT IN (SELECT DISTINCT person_id FROM faces WHERE person_id IS NOT NULL)`)
+      .run()
+    this.invalidate()
+    return info.changes
+  }
+
   // ---------------------------------------------------------------- caching
 
   private loadFacesCache(): FaceCacheRow[] {

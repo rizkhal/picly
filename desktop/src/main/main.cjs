@@ -254,6 +254,14 @@ function registerLocalIpc() {
     return require('../../dist-main/local.js').searchPhotosByName(local, String(query || ''));
   });
 
+  // Cleanup (manage-photos page) — all irreversible, confirm in the renderer.
+  ipcMain.handle('local:cleanup-stats', () => require('../../dist-main/local.js').cleanupStats(getLocalServices()));
+  ipcMain.handle('local:cleanup-unassigned-faces', () => require('../../dist-main/local.js').removeUnassignedFaces(getLocalServices()));
+  ipcMain.handle('local:cleanup-low-quality-faces', () => require('../../dist-main/local.js').removeLowQualityFaces(getLocalServices()));
+  ipcMain.handle('local:cleanup-duplicates', () => require('../../dist-main/local.js').listDuplicateGroups(getLocalServices()));
+  ipcMain.handle('local:cleanup-empty-persons', () => require('../../dist-main/local.js').removeEmptyPersons(getLocalServices()));
+  ipcMain.handle('local:cleanup-orphan-thumbs', () => require('../../dist-main/local.js').removeOrphanThumbs(getLocalServices()));
+
   ipcMain.handle('local:scan-folder', (e, folderPath) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     const { scanId, cancel, done } = require('../../dist-main/local.js').startScan(

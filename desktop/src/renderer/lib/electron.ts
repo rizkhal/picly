@@ -327,6 +327,72 @@ export const local = {
     }
   },
 
+  async cleanupStats(): Promise<any | null> {
+    const api = bridge()
+    if (!api?.local?.cleanupStats) return null
+    try {
+      return (await api.local.cleanupStats()) || null
+    } catch (e) {
+      console.error('cleanupStats failed', e)
+      return null
+    }
+  },
+
+  async cleanupUnassignedFaces(): Promise<number> {
+    const api = bridge()
+    if (!api?.local?.cleanupUnassignedFaces) return 0
+    try {
+      return (await api.local.cleanupUnassignedFaces()) || 0
+    } catch (e) {
+      console.error('cleanupUnassignedFaces failed', e)
+      return 0
+    }
+  },
+
+  async cleanupLowQualityFaces(): Promise<number> {
+    const api = bridge()
+    if (!api?.local?.cleanupLowQualityFaces) return 0
+    try {
+      return (await api.local.cleanupLowQualityFaces()) || 0
+    } catch (e) {
+      console.error('cleanupLowQualityFaces failed', e)
+      return 0
+    }
+  },
+
+  async cleanupDuplicates(): Promise<any[]> {
+    const api = bridge()
+    if (!api?.local?.cleanupDuplicates) return []
+    try {
+      return (await api.local.cleanupDuplicates()) || []
+    } catch (e) {
+      console.error('cleanupDuplicates failed', e)
+      return []
+    }
+  },
+
+  async cleanupEmptyPersons(): Promise<number> {
+    const api = bridge()
+    if (!api?.local?.cleanupEmptyPersons) return 0
+    try {
+      return (await api.local.cleanupEmptyPersons()) || 0
+    } catch (e) {
+      console.error('cleanupEmptyPersons failed', e)
+      return 0
+    }
+  },
+
+  async cleanupOrphanThumbs(): Promise<number> {
+    const api = bridge()
+    if (!api?.local?.cleanupOrphanThumbs) return 0
+    try {
+      return (await api.local.cleanupOrphanThumbs()) || 0
+    } catch (e) {
+      console.error('cleanupOrphanThumbs failed', e)
+      return 0
+    }
+  },
+
   async stats(): Promise<unknown | null> {
     const api = bridge()
     if (!api?.local?.stats) return null

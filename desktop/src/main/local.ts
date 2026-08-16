@@ -240,3 +240,41 @@ export function listFacesForPerson(services: LocalServices, personId: string, li
     faceUrl: `picly://face/${f.faceId}.jpg`,
   }))
 }
+
+// -------------------------------------------------------------- cleanup
+
+/** Counts of cleanup candidates (unassigned faces, dups, empty persons…). */
+export function cleanupStats(services: LocalServices): unknown {
+  return services.store.cleanupStats()
+}
+
+/** Hard-delete faces with no person (irreversible). */
+export function removeUnassignedFaces(services: LocalServices): number {
+  return services.store.removeUnassignedFaces()
+}
+
+/** Hard-delete very_low-quality faces (irreversible). */
+export function removeLowQualityFaces(services: LocalServices): number {
+  return services.store.removeLowQualityFaces()
+}
+
+/** Duplicate photos (same content hash) grouped for review. */
+export function listDuplicateGroups(services: LocalServices): unknown[] {
+  return services.store.listDuplicateGroups().map((g) => ({
+    ...g,
+    photos: g.photos.map((p) => ({
+      ...p,
+      thumbUrl: p.thumbPath ? `picly://thumb/${path.basename(p.thumbPath)}` : null,
+    })),
+  }))
+}
+
+/** Hard-delete persons with no faces (safe, they're invisible). */
+export function removeEmptyPersons(services: LocalServices): number {
+  return services.store.removeEmptyPersons()
+}
+
+/** Orphan thumb/crop files not referenced by any photo/face (safe). */
+export function removeOrphanThumbs(services: LocalServices): number {
+  return services.store.cleanupOrphans()
+}
