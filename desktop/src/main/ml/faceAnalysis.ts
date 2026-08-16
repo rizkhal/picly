@@ -4,7 +4,7 @@ import { umeyama } from './matrix'
 import { ArcFaceEmbedder } from './arcface'
 import { QualityScorer } from './quality'
 import { ScrfdDetector } from './scrfd'
-import type { DetectedFace, FaceQuality, RgbImage } from './types'
+import type { DetectedFace, FacePose, FaceQuality, RgbImage } from './types'
 
 /** ArcFace alignment template (arcface_dst from insightface/utils/face_align.py). */
 export const ARCFACE_DST: number[][] = [
@@ -217,7 +217,7 @@ export class FaceAnalysis {
     this.embed = embed
     this.embedLow = embedLow ?? false
     this.qualityScoreMin = qualityScoreMin ?? 0.2
-    this.qualityGateDetScore = qualityGateDetScore ?? 0.7
+    this.qualityGateDetScore = qualityGateDetScore ?? 0.5
     this.qualityGateEqScore = qualityGateEqScore ?? 0.25
     this.qualityGateTinySidePx = qualityGateTinySidePx ?? 80
     this.qualityGateEqTiny = qualityGateEqTiny ?? 0.15
@@ -245,7 +245,7 @@ export class FaceAnalysis {
       rest.embed ?? true,
       rest.embedLow ?? false,
       rest.qualityScoreMin === undefined ? 0.2 : rest.qualityScoreMin,
-      rest.qualityGateDetScore ?? 0.7,
+      rest.qualityGateDetScore ?? 0.5,
       rest.qualityGateEqScore ?? 0.25,
       rest.qualityGateTinySidePx ?? 80,
       rest.qualityGateEqTiny ?? 0.15,
@@ -259,6 +259,17 @@ export class FaceAnalysis {
   async detect(imagePath: string): Promise<DetectedFace[]> {
     const img = await decodeRgb(imagePath)
     return this.detectFromImage(img)
+  }
+
+  /**
+   * Public helper for tools/scripts: warp an aligned 112x112 RGB crop from raw
+   * SCRFD kps (same transform `embedFace` uses). Returns a copy so callers own
+   * the buffer.
+   */
+  async warpAlignedPublic(img: RgbImage, kps: number[][]): Promise<RgbImage> {
+    const M = umeyama(kps, ARCFACE_DST)
+    const aimg = warpAffine(img, M, this.config.arcInputSize)
+    return { width: aimg.width, height: aimg.height, data: new Uint8Array(aimg.data) }
   }
 
   /** Run SCRFD once over `img`, coords in img-local space. */
@@ -325,34 +336,73 @@ export class FaceAnalysis {
    * points, landmarks far outside the bbox). Small faces legitimately have
    * closely-spaced eyes, so eye distance is NOT used as a hard rejection —
    * benchmark showed it wrongly dropped real small faces in crowded scenes.
+   *
+   * Returns { valid, eyeDistRatio, yawRatio } so callers can apply soft
+   * pose/quality penalties without hard-rejecting angled faces.
    */
-  private static kpsValid(bbox: number[], kps: number[][]): boolean {
-    if (!kps || kps.length !== 5) return false
+  private static faceGeometry(bbox: number[], kps: number[][]): { valid: boolean; eyeDistRatio: number; yawRatio: number } {
+    const bad = { valid: false, eyeDistRatio: 0, yawRatio: 0 }
+    if (!kps || kps.length !== 5) return bad
     const [x1, y1, x2, y2] = bbox
     const bw = Math.max(1, x2 - x1)
     const bh = Math.max(1, y2 - y1)
     const pad = 0.9 // landmarks may sit just outside the tight bbox
     for (const p of kps) {
-      if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return false
-      if (p[0] < x1 - pad * bw || p[0] > x2 + pad * bw) return false
-      if (p[1] < y1 - pad * bh || p[1] > y2 + pad * bh) return false
+      if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) return bad
+      if (p[0] < x1 - pad * bw || p[0] > x2 + pad * bw) return bad
+      if (p[1] < y1 - pad * bh || p[1] > y2 + pad * bh) return bad
     }
-    // Proportional eye-distance sanity: a real face always has eyes spanning
-    // a meaningful fraction of its box. Proportional (not absolute) so small
-    // faces are not wrongly rejected.
-    const eyeDist = Math.hypot(kps[0][0] - kps[1][0], kps[0][1] - kps[1][1])
-    if (eyeDist < 0.04 * Math.min(bw, bh)) return false
-    return true
+    const re = kps[0]
+    const le = kps[1]
+    const nose = kps[2]
+    const eyeDist = Math.hypot(re[0] - le[0], re[1] - le[1])
+    const eyeMid = [(re[0] + le[0]) / 2, (re[1] + le[1]) / 2]
+    // Proportional eye-distance sanity: a real face always has eyes spanning a
+    // meaningful fraction of its box. Proportional (not absolute) so small faces
+    // are not wrongly rejected.
+    const eyeDistRatio = eyeDist / Math.max(1, Math.min(bw, bh))
+    // Yaw proxy from nose offset vs eye midpoint (normalized by eye distance).
+    // 0 = frontal; |yaw| large = strong profile (weak ArcFace evidence).
+    const yawRatio = eyeDist > 0 ? (nose[0] - eyeMid[0]) / eyeDist : 0
+    if (eyeDistRatio < 0.04) return bad
+    return { valid: true, eyeDistRatio, yawRatio }
   }
 
-  /** Quality gate: tiny/weak/implausible candidates never reach recognition. */
-  private gateReason(bbox: number[], score: number, kps: number[][]): 'tiny' | 'score' | 'kps' | null {
+  /**
+   * Pose-aware quality penalty. Faces with strong yaw (profile/back-of-head)
+   * produce weak ArcFace evidence and can false-match a different person, so
+   * they are downgraded one tier — they stay visible in the UI but no longer
+   * anchor clustering. 0 = frontal, returns 0..n tiers to drop.
+   */
+  private static posePenalty(yawRatio: number, eyeDistRatio: number): number {
+    const absYaw = Math.abs(yawRatio)
+    // Very strong profile or degenerate landmarks (eyes too close together for
+    // the box) — treat as weak identity evidence.
+    if (absYaw > 1.6 || eyeDistRatio < 0.08) return 1
+    return 0
+  }
+
+  /**
+   * Composite FP gate: mid-confidence detections that are too small to be
+   * genuine large faces are almost always non-face crops (back-of-head,
+   * shoulder, texture). Real faces >=64px have detScore p5=0.571 and usually
+   * grow beyond 250px; downgrading these to `low` keeps them in the UI but
+   * stops them from anchoring clustering (LOW can only join with strong sim).
+   */
+  private fpAnglePenalty(bbox: number[], score: number): number {
+    const side = Math.max(bbox[2] - bbox[0], bbox[3] - bbox[1])
+    if (score < 0.6 && side < 250) return 2 // high|medium -> low (never anchor)
+    return 0
+  }
+
+  private gateReason(bbox: number[], score: number, kps: number[][]): { reason: 'tiny' | 'score' | 'kps' | null; posePenalty: number; fpPenalty: number } {
     const bw = bbox[2] - bbox[0]
     const bh = bbox[3] - bbox[1]
-    if (Math.min(bw, bh) < this.minFacePx) return 'tiny'
-    if (score < this.minFaceScore) return 'score'
-    if (!FaceAnalysis.kpsValid(bbox, kps)) return 'kps'
-    return null
+    if (Math.min(bw, bh) < this.minFacePx) return { reason: 'tiny', posePenalty: 0, fpPenalty: 0 }
+    if (score < this.minFaceScore) return { reason: 'score', posePenalty: 0, fpPenalty: 0 }
+    const geom = FaceAnalysis.faceGeometry(bbox, kps)
+    if (!geom.valid) return { reason: 'kps', posePenalty: 0, fpPenalty: 0 }
+    return { reason: null, posePenalty: FaceAnalysis.posePenalty(geom.yawRatio, geom.eyeDistRatio), fpPenalty: this.fpAnglePenalty(bbox, score) }
   }
 
   /**
@@ -387,7 +437,7 @@ export class FaceAnalysis {
     score: number,
     kps: number[][],
     eqScore: number | null = null,
-  ): { quality: FaceQuality; qualityScore: number } {
+  ): { quality: FaceQuality; qualityScore: number; posePenalty: number } {
     const side = Math.max(bbox[2] - bbox[0], bbox[3] - bbox[1])
     const q = this.qualityScore(bbox, score, kps)
     let quality: FaceQuality
@@ -395,6 +445,13 @@ export class FaceAnalysis {
     else if (side >= 32) quality = 'medium'
     else if (side >= 20) quality = q >= 0.45 ? 'low' : 'very_low'
     else quality = 'very_low'
+    // Pose arm: strong profile / degenerate landmarks weaken identity evidence.
+    const geom = FaceAnalysis.faceGeometry(bbox, kps)
+    const posePenalty = FaceAnalysis.posePenalty(geom.yawRatio, geom.eyeDistRatio)
+    if (posePenalty > 0) {
+      const order: FaceQuality[] = ['high', 'medium', 'low', 'very_low']
+      quality = order[Math.min(order.length - 1, Math.max(0, order.indexOf(quality) + posePenalty))]
+    }
     // Blur arm: eDifFIQA below qualityBlurEq -> one tier down, never high.
     // Under half of qualityBlurEq (very blurry) -> one more tier down.
     if (eqScore !== null && this.qualityBlurEq > 0 && eqScore < this.qualityBlurEq) {
@@ -403,7 +460,7 @@ export class FaceAnalysis {
       const idx = order.indexOf(quality)
       quality = order[Math.min(order.length - 1, Math.max(0, idx + drop))]
     }
-    return { quality, qualityScore: q }
+    return { quality, qualityScore: q, posePenalty }
   }
 
   /** Greedy NMS across all detections (dedup tiles + pass-1 overlap). */
@@ -527,16 +584,16 @@ export class FaceAnalysis {
     let rejectedTiny = 0
     let rejectedScore = 0
     let rejectedKps = 0
-    const accepted: Array<{ bbox: [number, number, number, number]; score: number; kps: number[][] }> = []
+    const accepted: Array<{ bbox: [number, number, number, number]; score: number; kps: number[][]; posePenalty: number; fpPenalty: number }> = []
     for (let i = 0; i < merged.bboxes.length; i++) {
       const bbox = merged.bboxes[i] as [number, number, number, number]
       const score = merged.scores[i]
       const kps = merged.kpss[i]
-      const reason = this.gateReason(bbox, score, kps)
-      if (reason === 'tiny') { rejectedTiny++; continue }
-      if (reason === 'score') { rejectedScore++; continue }
-      if (reason === 'kps') { rejectedKps++; continue }
-      accepted.push({ bbox, score, kps })
+      const gate = this.gateReason(bbox, score, kps)
+      if (gate.reason === 'tiny') { rejectedTiny++; continue }
+      if (gate.reason === 'score') { rejectedScore++; continue }
+      if (gate.reason === 'kps') { rejectedKps++; continue }
+      accepted.push({ bbox, score, kps, posePenalty: gate.posePenalty, fpPenalty: gate.fpPenalty })
     }
     const t3b = Date.now()
 
@@ -551,6 +608,11 @@ export class FaceAnalysis {
     const qTiers = { high: 0, medium: 0, low: 0, very_low: 0 }
     let qualityDowngraded = 0
     for (const f of accepted) {
+      const geom = FaceAnalysis.faceGeometry(f.bbox, f.kps)
+      const facePose: FacePose = {
+        yawRatio: geom.yawRatio,
+        eyeDistRatio: geom.eyeDistRatio,
+      }
       let { quality } = this.classifyQuality(f.bbox, f.score, f.kps, null)
       let eqScore: number | null = null
       if (this.qualityScoreMin) {
@@ -558,14 +620,26 @@ export class FaceAnalysis {
         quality = this.classifyQuality(f.bbox, f.score, f.kps, eqScore).quality
         const side = Math.max(f.bbox[2] - f.bbox[0], f.bbox[3] - f.bbox[1])
         // Composite gate: low-confidence detections with poor eDifFIQA are
-        // almost always non-face (benchmark: 12/13 phantom Person-41 removed,
-        // 0/187 good >=64px faces touched). Plus a tiny-face blur arm.
+        // almost always non-face. We lowered the det-score arm to 0.5 (was
+        // 0.7) so mid-confidence false positives like back-of-head / shoulder
+        // crops (det ~0.5-0.6) also get caught, while real faces at det 0.7+
+        // are untouched. Plus a tiny-face blur arm.
         const gateLowDet = f.score < this.qualityGateDetScore && eqScore !== null && eqScore < this.qualityGateEqScore
         const gateTiny = side < this.qualityGateTinySidePx && eqScore !== null && eqScore < this.qualityGateEqTiny
         if (gateLowDet || gateTiny) {
           quality = 'very_low'
           qualityDowngraded += 1
         }
+      }
+      // Pose/FP penalties applied AFTER eDifFIQA so the eDifFIQA re-classify
+      // does not overwrite them (back-of-head/shoulder crops stay downgraded).
+      if (f.posePenalty > 0) {
+        const order: FaceQuality[] = ['high', 'medium', 'low', 'very_low']
+        quality = order[Math.min(order.length - 1, Math.max(0, order.indexOf(quality) + f.posePenalty))]
+      }
+      if (f.fpPenalty > 0) {
+        const order: FaceQuality[] = ['high', 'medium', 'low', 'very_low']
+        quality = order[Math.min(order.length - 1, Math.max(0, order.indexOf(quality) + f.fpPenalty))]
       }
       qTiers[quality] += 1
       const shouldEmbed = this.embed && (quality !== 'very_low' || this.embedLow)
@@ -575,6 +649,7 @@ export class FaceAnalysis {
         kps: f.kps,
         embedding: shouldEmbed ? await this.embedFace(img, f.bbox, f.kps) : null,
         quality,
+        facePose,
         // When the gate is on, qualityScore = eDifFIQA score (0..1); otherwise
         // the geometric heuristic (kept for backward compat with tools/UI).
         qualityScore: this.qualityScoreMin ? (eqScore ?? 0) : this.classifyQuality(f.bbox, f.score, f.kps).qualityScore,

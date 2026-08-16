@@ -12,6 +12,18 @@ export interface RgbImage {
  */
 export type FaceQuality = 'high' | 'medium' | 'low' | 'very_low'
 
+/**
+ * Pose/landmark geometry summary for a detection, computed from SCRFD kps.
+ * Used for pose-aware quality: strong-yaw / degenerate-landmark faces are weak
+ * identity evidence (can false-match a different person) and are downgraded.
+ */
+export interface FacePose {
+  /** Horizontal nose offset vs eye midpoint, normalized by eye distance (0 = frontal). */
+  yawRatio: number
+  /** Eye distance as fraction of min(bbox sides) — very small => suspect landmarks. */
+  eyeDistRatio: number
+}
+
 export interface DetectedFace {
   /** [x1, y1, x2, y2] in original-image coordinates (float). */
   bbox: [number, number, number, number]
@@ -26,6 +38,8 @@ export interface DetectedFace {
   embedding: Float32Array | null
   /** Quality tier from the quality gate (size + score + landmarks). */
   quality: FaceQuality
+  /** Pose/landmark geometry (yaw + eye span) for the quality gate. */
+  facePose: FacePose
   /** Continuous quality score, 0..1 (see FaceAnalysis.qualityScore). */
   qualityScore: number
   /** true for very_low tier (below embedding threshold). */
