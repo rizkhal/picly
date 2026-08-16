@@ -403,7 +403,6 @@ export default function App() {
         onFolderClick={handleFolderClick}
         onRemoveFolder={handleRemoveFolder}
         onRescanFolder={handleRescanFolder}
-        scanning={scanning}
         onAddFolder={handleAddFolder}
         onManagePhotos={handleManagePhotos}
         trashCount={trashCount}
