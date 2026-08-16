@@ -9,6 +9,13 @@ const API_BASE = getApiBase();
 // Set before window/UI creation so the app menu label follows the app name.
 app.setName('Picly');
 
+// Dev builds share the "Picly" app name with the packaged app, which makes
+// Electron's userData folder (and thus the DB + thumbnails) collide. Give dev
+// its own data dir so a packaged install never touches dev data (and vice versa).
+if (!app.isPackaged) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'Picly Dev'));
+}
+
 // Custom scheme for serving local thumbnails to the renderer (picly://thumb/<id>.jpg)
 protocol.registerSchemesAsPrivileged([
   { scheme: 'picly', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
