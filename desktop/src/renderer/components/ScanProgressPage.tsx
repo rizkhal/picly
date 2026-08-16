@@ -47,7 +47,7 @@ function ScanRow({
           ) : isQueued ? (
             <span>Waiting for a previous scan to finish…</span>
           ) : isPaused ? (
-            <span className="scan-paused-line">Paused — Resume untuk lanjut dari sisa</span>
+            <span className="scan-paused-line">Paused — Resume to continue from where it stopped</span>
           ) : isDone ? (
             <span className="scan-done-line">
               {scan.scanned} new · {scan.total_faces} faces · {scan.persons} persons
@@ -74,16 +74,16 @@ function ScanRow({
         )}
         {isPaused && (
           <>
-            <button className="scan-resume-btn" title="Lanjutkan scan" onClick={() => onResume(scan.scan_id)}>
+            <button className="scan-resume-btn" title="Resume scan" onClick={() => onResume(scan.scan_id)}>
               <Play size={14} weight="bold" />
             </button>
-            <button className="scan-delete-btn" title="Hapus scan" onClick={() => onRemove(scan.scan_id)}>
+            <button className="scan-delete-btn" title="Delete scan" onClick={() => onRemove(scan.scan_id)}>
               <Trash size={14} weight="bold" />
             </button>
           </>
         )}
         {(isDone || isError || isCancelled) && (
-          <button className="scan-dismiss-btn" title="Sembunyikan" onClick={() => onDismiss(scan.scan_id)}>
+          <button className="scan-dismiss-btn" title="Hide" onClick={() => onDismiss(scan.scan_id)}>
             <X size={14} weight="bold" />
           </button>
         )}
@@ -103,7 +103,7 @@ export function ScanProgressPage({ scans, scanning, onPause, onResume, onRemove,
       <div className="settings-header">
         <div className="settings-title">
           Scan progress
-          {activeCount > 0 && <span className="queue-header-count">{activeCount} berjalan</span>}
+          {activeCount > 0 && <span className="queue-header-count">{activeCount} running</span>}
         </div>
         <div className="settings-header-actions">
           <button className="btn" onClick={onAddFolder} disabled={scanning}>
@@ -115,12 +115,12 @@ export function ScanProgressPage({ scans, scanning, onPause, onResume, onRemove,
 
       <div className="settings-body">
         <div className="settings-section">
-          <div className="settings-section-title">Daftar scan</div>
+          <div className="settings-section-title">Scan queue</div>
           {scans.length === 0 ? (
             <div className="queue-empty">
               <Folder size={28} />
-              <p>Tidak ada scan.</p>
-              <p>Tambahkan folder untuk mulai meng-index foto.</p>
+              <p>No scans yet.</p>
+              <p>Add a folder to start indexing photos.</p>
             </div>
           ) : (
             <div className="queue-list">

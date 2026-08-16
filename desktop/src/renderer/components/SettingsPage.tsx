@@ -36,19 +36,19 @@ function ModelRow({ title, desc, installed, latest }: { title: string; desc: str
         <div className="settings-model-desc">{desc}</div>
       </div>
       <div className="settings-model-meta">
-        <div className="settings-model-version">{installed || 'tidak ditemukan'}</div>
-        {hasNewer && <div className="settings-model-newer">Terbaru: {latest}</div>}
+        <div className="settings-model-version">{installed || 'not found'}</div>
+        {hasNewer && <div className="settings-model-newer">Latest: {latest}</div>}
       </div>
     </div>
   )
 }
 
 const MENU: Array<{ id: SettingsSectionId; label: string; icon: React.ReactNode }> = [
-  { id: 'account', label: 'Akun', icon: <User size={16} /> },
-  { id: 'storage', label: 'Penyimpanan', icon: <HardDrives size={16} /> },
-  { id: 'faces', label: 'Wajah', icon: <FaceMask size={16} /> },
-  { id: 'models', label: 'Model (ML)', icon: <Brain size={16} /> },
-  { id: 'about', label: 'Tentang', icon: <Info size={16} /> },
+  { id: 'account', label: 'Account', icon: <User size={16} /> },
+  { id: 'storage', label: 'Storage', icon: <HardDrives size={16} /> },
+  { id: 'faces', label: 'Faces', icon: <FaceMask size={16} /> },
+  { id: 'models', label: 'Models (ML)', icon: <Brain size={16} /> },
+  { id: 'about', label: 'About', icon: <Info size={16} /> },
 ]
 
 export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, updateChecking, onCheckUpdate, onOpenUpdate, onClose, showSingletons, onToggleShowSingletons, section, onSectionChange }: SettingsPageProps) {
@@ -86,20 +86,20 @@ export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, upd
         <div className="settings-content">
           {section === 'account' && (
             <section className="settings-section">
-              <div className="settings-section-title">Akun</div>
+              <div className="settings-section-title">Account</div>
               {authStatus.loggedIn ? (
                 <div className="settings-row">
                   <div className="settings-row-info">
                     <div className="settings-row-label">{authStatus.email}</div>
-                    <div className="settings-row-hint">Tersambung</div>
+                    <div className="settings-row-hint">Connected</div>
                   </div>
                   <button className="btn" onClick={onLogout}>Logout</button>
                 </div>
               ) : (
                 <div className="settings-row">
                   <div className="settings-row-info">
-                    <div className="settings-row-label">Belum login</div>
-                    <div className="settings-row-hint">Akun opsional — semua fitur lokal tetap jalan</div>
+                    <div className="settings-row-label">Not signed in</div>
+                    <div className="settings-row-hint">Optional account — all local features keep working</div>
                   </div>
                   <div className="settings-row-actions">
                     <button className="btn" onClick={() => onOpenAuth('login')}>Login</button>
@@ -112,7 +112,7 @@ export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, upd
 
           {section === 'storage' && (
             <section className="settings-section">
-              <div className="settings-section-title">Penyimpanan</div>
+              <div className="settings-section-title">Storage</div>
               {stats ? (
                 <div className="settings-stats">
                   <div className="stat-cell"><div className="stat-value">{stats.photos}</div><div className="stat-label">Photos</div></div>
@@ -121,25 +121,25 @@ export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, upd
                   <div className="stat-cell"><div className="stat-value">{stats.folders}</div><div className="stat-label">Folders</div></div>
                 </div>
               ) : (
-                <div className="settings-row-hint">Memuat…</div>
+                <div className="settings-row-hint">Loading…</div>
               )}
             </section>
           )}
 
           {section === 'faces' && (
             <section className="settings-section">
-              <div className="settings-section-title">Wajah</div>
+              <div className="settings-section-title">Faces</div>
               <div className="settings-row">
                 <div className="settings-row-info">
-                  <div className="settings-row-label">Tampilkan person sekali muncul</div>
-                  <div className="settings-row-hint">Foto ramai: person yang hanya muncul 1× juga ditampilkan di filter wajah (yang blur/kualitas rendah tetap disembunyikan).</div>
+                  <div className="settings-row-label">Show one-time persons</div>
+                  <div className="settings-row-hint">Crowded photos: people appearing only once are also shown in the face filter (blurry / low-quality ones stay hidden).</div>
                 </div>
                 <button
                   className={`toggle-btn ${showSingletons ? 'on' : ''}`}
                   role="switch"
                   aria-checked={showSingletons}
                   onClick={onToggleShowSingletons}
-                  title={showSingletons ? 'Nonaktifkan' : 'Aktifkan'}
+                  title={showSingletons ? 'Disable' : 'Enable'}
                 >
                   <span className="toggle-knob" />
                 </button>
@@ -149,26 +149,26 @@ export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, upd
 
           {section === 'models' && (
             <section className="settings-section">
-              <div className="settings-section-title">Model (ML)</div>
+              <div className="settings-section-title">Models (ML)</div>
               {!localModels ? (
-                <div className="settings-row-hint">Memuat…</div>
+                <div className="settings-row-hint">Loading…</div>
               ) : (
                 <div className="settings-model-list">
                   <ModelRow
-                    title="Deteksi wajah"
-                    desc="SCRFD 10G — menemukan semua wajah di foto."
+                    title="Face detection"
+                    desc="SCRFD 10G — finds all faces in a photo."
                     installed={localModels.detector}
                     latest={updateInfo?.models?.detector}
                   />
                   <ModelRow
-                    title="Pengenalan wajah"
-                    desc="ArcFace (buffalo_l) — mengubah wajah menjadi embedding untuk pengelompokan."
+                    title="Face recognition"
+                    desc="ArcFace (buffalo_l) — turns faces into embeddings for grouping."
                     installed={localModels.recognizer}
                     latest={updateInfo?.models?.recognizer}
                   />
                   <ModelRow
-                    title="Kualitas wajah"
-                    desc="eDifFIQA — menilai ketajaman wajah sebelum diproses lebih lanjut."
+                    title="Face quality"
+                    desc="eDifFIQA — scores sharpness before further processing."
                     installed={localModels.quality}
                     latest={updateInfo?.models?.quality}
                   />
@@ -179,47 +179,47 @@ export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, upd
 
           {section === 'about' && (
             <section className="settings-section">
-              <div className="settings-section-title">Tentang</div>
+              <div className="settings-section-title">About</div>
               <div className="settings-row">
                 <div className="settings-row-info">
                   <div className="settings-row-label">
                     Picly
                     {updateInfo?.available && updateInfo?.latest && (
-                      <span className="update-chip">Update tersedia: {updateInfo.latest}</span>
+                      <span className="update-chip">Update available: {updateInfo.latest}</span>
                     )}
                   </div>
                   <div className="settings-row-hint">
-                    Pengelola foto lokal — face recognition via ONNX (buffalo_l), semua data di perangkat.
+                    Local photo manager — face recognition via ONNX (buffalo_l), all data on your device.
                   </div>
                   <div className="settings-row-hint">
-                    Versi terpasang: <span className="mono">{updateInfo?.current || '—'}</span>
+                    Installed version: <span className="mono">{updateInfo?.current || '—'}</span>
                     {updateInfo?.latest && updateInfo?.latest !== updateInfo?.current && (
-                      <> · Terbaru: <span className="mono">{updateInfo.latest}</span></>
+                      <> · Latest: <span className="mono">{updateInfo.latest}</span></>
                     )}
                   </div>
                   <div className="settings-row-hint">
-                    {updateChecking ? 'Mengecek update…' : (
+                    {updateChecking ? 'Checking for updates…' : (
                       updateInfo?.available
                         ? (updateInfo.notes?.length ?? 0) > 0
                           ? updateInfo.notes!.join(' · ')
-                          : 'Versi baru tersedia.'
+                          : 'A new version is available.'
                         : updateInfo?.error
-                          ? `Gagal cek update (${updateInfo.error})`
-                          : 'Aplikasi sudah versi terbaru.'
+                          ? `Update check failed (${updateInfo.error})`
+                          : 'You are on the latest version.'
                     )}
                   </div>
                   {updateInfo?.available && updateInfo?.models && (
                     <div className="settings-row-hint">
-                      Termasuk model baru: {[updateInfo.models.detector, updateInfo.models.recognizer, updateInfo.models.quality].filter(Boolean).join(', ')}
+                      Includes new models: {[updateInfo.models.detector, updateInfo.models.recognizer, updateInfo.models.quality].filter(Boolean).join(', ')}
                     </div>
                   )}
                 </div>
                 <div className="settings-row-actions">
                   {updateInfo?.available && updateInfo?.url && (
-                    <button className="btn" onClick={onOpenUpdate}>Buka halaman</button>
+                    <button className="btn" onClick={onOpenUpdate}>Open page</button>
                   )}
                   <button className="btn" onClick={onCheckUpdate} disabled={updateChecking}>
-                    {updateChecking ? 'Mengecek…' : 'Cek update'}
+                    {updateChecking ? 'Checking…' : 'Check for updates'}
                   </button>
                 </div>
               </div>

@@ -22,7 +22,7 @@ export function useAuth() {
 
   const submitAuth = useCallback(async (mode: 'login' | 'register') => {
     if (!authEmail || !authPassword) {
-      setAuthError('Email dan password wajib diisi.')
+      setAuthError('Email and password are required.')
       return
     }
     setAuthBusy(true)
@@ -37,7 +37,7 @@ export function useAuth() {
         setAuthEmail('')
         setAuthPassword('')
       } else {
-        setAuthError(res?.error || 'Gagal. Coba lagi.')
+        setAuthError(res?.error || 'Failed. Try again.')
       }
     } catch (e: any) {
       setAuthError(e?.message || String(e))

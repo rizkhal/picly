@@ -85,10 +85,10 @@ export function PersonManager({ persons, onClose, onMerge, onSplit }: PersonMana
     const [target, ...sources] = [...selected]
     try {
       await onMerge(target, sources)
-      setMsg(`Menggabungkan ${selected.size} person jadi 1.`)
+      setMsg(`Merged ${selected.size} persons into 1.`)
       setSelected(new Set())
     } catch (e) {
-      setMsg('Gagal merge — coba lagi.')
+      setMsg('Merge failed — try again.')
     } finally {
       setBusy(false)
     }
@@ -98,15 +98,15 @@ export function PersonManager({ persons, onClose, onMerge, onSplit }: PersonMana
     if (!canSplit) return
     const [personId] = [...selected]
     const person = persons.find((p) => p.person_id === personId)
-    if (!confirm(`Split "${person?.name || 'person'}" menjadi per-wajah? Semua wajahnya jadi person terpisah.`)) return
+    if (!confirm(`Split "${person?.name || 'person'}" into individual faces? All of its faces become separate persons.`)) return
     setBusy(true)
     setMsg(null)
     try {
       await onSplit(personId)
-      setMsg('Dipecah per-wajah.')
+      setMsg('Split into individual faces.')
       setSelected(new Set())
     } catch (e) {
-      setMsg('Gagal split — coba lagi.')
+      setMsg('Split failed — try again.')
     } finally {
       setBusy(false)
     }
@@ -123,7 +123,7 @@ export function PersonManager({ persons, onClose, onMerge, onSplit }: PersonMana
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal person-manager" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <div className="modal-title">Kelola Person</div>
+          <div className="modal-title">Manage Persons</div>
           <button className="modal-close" onClick={onClose}>
             <X size={16} />
           </button>
@@ -132,10 +132,10 @@ export function PersonManager({ persons, onClose, onMerge, onSplit }: PersonMana
           {/* Left: person list + actions */}
           <div className="pm-main">
             <div className="pm-hint">
-              Pilih 2+ person lalu <strong>Merge</strong> (gabungkan — orang yang sama
-              kepecah). Pilih 1 person lalu <strong>Split</strong> (pecah per-wajah —
-              cluster berisi orang berbeda). Perubahan tersimpan permanen (tidak
-              di-undo oleh re-scan/cluster ulang).
+              Select 2+ persons then <strong>Merge</strong> (join — the same person
+              split apart). Select 1 person then <strong>Split</strong> (per-face —
+              cluster contains different people). Changes are permanent (not
+              undone by re-scan/re-cluster).
             </div>
 
             <div className="pm-list">
@@ -149,7 +149,7 @@ export function PersonManager({ persons, onClose, onMerge, onSplit }: PersonMana
                   >
                     <span className="pm-check">{isSel ? '✓' : ''}</span>
                     <span className="pm-name">{p.name}</span>
-                    <span className="pm-count">{p.photo_count} foto</span>
+                    <span className="pm-count">{p.photo_count} photos</span>
                   </button>
                 )
               })}
@@ -159,13 +159,13 @@ export function PersonManager({ persons, onClose, onMerge, onSplit }: PersonMana
 
             <div className="modal-actions pm-actions">
               <span className="pm-selection" title={selectionInfo}>
-                {selected.size === 0 ? 'Belum ada pilihan' : selectionInfo}
+                {selected.size === 0 ? 'No selection yet' : selectionInfo}
               </span>
               <button
                 className="btn btn-primary"
                 disabled={!canMerge || busy}
                 onClick={merge}
-                title="Gabungkan person terpilih jadi satu"
+                title="Merge selected persons into one"
               >
                 Merge ({selected.size})
               </button>
@@ -173,7 +173,7 @@ export function PersonManager({ persons, onClose, onMerge, onSplit }: PersonMana
                 className="btn"
                 disabled={!canSplit || busy}
                 onClick={split}
-                title="Pecah person terpilih jadi per-wajah"
+                title="Split selected person into individual faces"
               >
                 <SplitHorizontal size={14} /> Split
               </button>
@@ -184,13 +184,13 @@ export function PersonManager({ persons, onClose, onMerge, onSplit }: PersonMana
           <div className="pm-preview">
             <div className="pm-preview-title">
               {previewPerson
-                ? `Wajah — ${previewPerson.name}`
+                ? `Faces — ${previewPerson.name}`
                 : selected.size > 1
-                  ? 'Pilih 1 person untuk preview'
-                  : 'Pilih person untuk lihat wajahnya'}
+                  ? 'Select 1 person to preview'
+                  : 'Select a person to see their faces'}
             </div>
             {facesLoading ? (
-              <div className="pm-preview-empty">Memuat wajah…</div>
+              <div className="pm-preview-empty">Loading faces…</div>
             ) : previewPersonId && faces && faces.length > 0 ? (
               <div className="pm-preview-grid">
                 {faces.map((f) => (
@@ -203,7 +203,7 @@ export function PersonManager({ persons, onClose, onMerge, onSplit }: PersonMana
                 ))}
               </div>
             ) : previewPersonId ? (
-              <div className="pm-preview-empty">Tidak ada wajah (mungkin belum di-scan ulang).</div>
+              <div className="pm-preview-empty">No faces (maybe not scanned yet).</div>
             ) : (
               <div className="pm-preview-empty">—</div>
             )}

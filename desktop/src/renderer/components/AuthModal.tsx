@@ -19,10 +19,10 @@ export function AuthModal({ mode, email, password, busy, error, onEmail, onPassw
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>
-          {mode === 'login' ? 'Masuk' : 'Buat Akun'}
+          {mode === 'login' ? 'Sign in' : 'Create account'}
         </div>
         <div style={{ fontSize: 12, color: '#8b8b8b', marginBottom: 16 }}>
-          Akun untuk entitlement & update. Foto tetap 100% lokal di device ini.
+          Account for entitlement & updates. Photos stay 100% local on this device.
         </div>
 
         <label style={{ fontSize: 12, color: '#a0a0a0', display: 'block', marginBottom: 4 }}>Email</label>
@@ -30,7 +30,7 @@ export function AuthModal({ mode, email, password, busy, error, onEmail, onPassw
           type="email"
           value={email}
           onChange={(e) => onEmail(e.target.value)}
-          placeholder="kamu@email.com"
+          placeholder="you@email.com"
           style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, background: '#141414', border: '1px solid #3a3a3a', color: '#e8e8e8', fontSize: 14, marginBottom: 12, outline: 'none' }}
         />
 
@@ -40,7 +40,7 @@ export function AuthModal({ mode, email, password, busy, error, onEmail, onPassw
           value={password}
           onChange={(e) => onPassword(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !busy) onSubmit() }}
-          placeholder="Minimal 8 karakter"
+          placeholder="At least 8 characters"
           style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, background: '#141414', border: '1px solid #3a3a3a', color: '#e8e8e8', fontSize: 14, marginBottom: 12, outline: 'none' }}
         />
 
@@ -53,17 +53,17 @@ export function AuthModal({ mode, email, password, busy, error, onEmail, onPassw
           disabled={busy}
           style={{ width: '100%', padding: '10px', borderRadius: 8, background: '#4a7cff', border: 'none', color: '#fff', fontSize: 14, fontWeight: 600, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}
         >
-          {busy ? 'Memproses…' : mode === 'login' ? 'Masuk' : 'Daftar'}
+          {busy ? 'Processing…' : mode === 'login' ? 'Sign in' : 'Sign up'}
         </button>
 
         <div style={{ marginTop: 12, fontSize: 12, textAlign: 'center', color: '#8b8b8b' }}>
           {mode === 'login' ? (
-            <>Belum punya akun?{' '}
-              <span style={{ color: '#4a7cff', cursor: 'pointer' }} onClick={onSwitchMode}>Daftar</span>
+            <>No account yet?{' '}
+              <span style={{ color: '#4a7cff', cursor: 'pointer' }} onClick={onSwitchMode}>Sign up</span>
             </>
           ) : (
-            <>Sudah punya akun?{' '}
-              <span style={{ color: '#4a7cff', cursor: 'pointer' }} onClick={onSwitchMode}>Masuk</span>
+            <>Already have an account?{' '}
+              <span style={{ color: '#4a7cff', cursor: 'pointer' }} onClick={onSwitchMode}>Sign in</span>
             </>
           )}
         </div>

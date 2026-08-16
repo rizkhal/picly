@@ -29,12 +29,12 @@ export function ManagePhotosPage({ onClose }: ManagePhotosPageProps) {
     <div className="settings-page manage-page">
       <div className="settings-header">
         <div className="settings-title">Manage photos</div>
-        <button className="btn" onClick={onClose}>← Kembali</button>
+        <button className="btn" onClick={onClose}>← Back</button>
       </div>
 
       <div className="settings-body">
         <div className="settings-section">
-          <div className="settings-section-title">Ringkasan library</div>
+          <div className="settings-section-title">Library summary</div>
           <div className="manage-stats">
             <div className="manage-stat">
               <Folder size={18} />
@@ -60,9 +60,9 @@ export function ManagePhotosPage({ onClose }: ManagePhotosPageProps) {
         </div>
 
         <div className="settings-section">
-          <div className="settings-section-title">Aksi</div>
+          <div className="settings-section-title">Actions</div>
           <div className="manage-placeholder">
-            Fitur pengelolaan foto (hapus wajah tidak terpakai, duplicate, cleanup) menyusul.
+            Photo management features (clean up unused faces, duplicates, cleanup) coming soon.
           </div>
         </div>
       </div>

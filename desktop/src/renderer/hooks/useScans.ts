@@ -84,7 +84,7 @@ export function useScans(onRefresh: () => void) {
   }, [startScanFor])
 
   // Pause a running scan — cancel main's scan, persist the state so a reload
-  // restores it with Resume/Hapus actions. Photos already scanned stay indexed.
+  // restores it with Resume/Delete actions. Photos already scanned stay indexed.
   const pauseScan = useCallback(async (scanId: string) => {
     const current = activeScans.find((s) => s.scan_id === scanId)
     if (!current) return
@@ -137,7 +137,7 @@ export function useScans(onRefresh: () => void) {
     setActiveScans((prev) => prev.filter((s) => s.scan_id !== scanId))
   }, [])
 
-  // Remove a finished scan from the sidebar (ringkasan yang sudah selesai)
+  // Remove a finished scan from the sidebar (summary already done)
   const dismissScan = useCallback((scanId: string) => {
     setDismissedScans((prev) => {
       const next = new Set(prev)
@@ -148,7 +148,7 @@ export function useScans(onRefresh: () => void) {
   }, [])
 
   // Restore paused scans after a reload — main's in-process scan is gone, but
-  // the persisted paused entries come back so the user can Resume or Hapus.
+  // the persisted paused entries come back so the user can Resume or Delete.
   const recoverScans = useCallback(() => {
     setActiveScans((prev) => {
       const existing = new Set(prev.map((s) => s.scan_id))
