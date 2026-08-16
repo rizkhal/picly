@@ -2521,6 +2521,8 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
   background: var(--surface-2);
   color: var(--accent);
@@ -2602,29 +2604,30 @@ html, body, #root {
 
 .avatar-crop-stage {
   position: relative;
-  max-height: 420px;
-  overflow: auto;
+  /* Fixed height, no scroll: the image is always fully visible (contain) no
+     matter its aspect ratio. Bigger than the old max-height so landscape
+     photos still read nicely. */
+  height: 420px;
+  overflow: hidden;
   background: #000;
   border-radius: 8px;
   touch-action: none;
   user-select: none;
   -webkit-user-drag: none;
-  /* Flex + margin:auto centers the image when it fits; when it overflows the
-     margins collapse to 0 so the top-left stays reachable by scrolling. */
-  display: flex;
 }
 
 .avatar-crop-img {
-  /* Natural (full-resolution) display — no downscaling. The stage scrolls
-     (overflow: auto) so large photos can be panned to pick the crop area.
-     margin:auto centers it (flex parent) when it fits; see stage comment. */
-  display: block;
-  width: auto;
-  height: auto;
-  max-width: none;
-  margin: auto;
+  /* object-fit: contain — whole image fits inside the fixed stage; the crop
+     box moves/resizes on top of it. Coordinate mapping uses the contain-rect
+     computed in JS, so the displayed size and the math always agree. */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
+  pointer-events: none;
 }
 
 .avatar-crop-box {

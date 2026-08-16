@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
+import { useEffect, useRef, useState, useMemo, forwardRef, useImperativeHandle } from 'react'
 import { createPortal } from 'react-dom'
 import { Folder, Trash, GearSix, Aperture, ArrowClockwise, Plus, PencilSimple, X, UploadSimple } from '@phosphor-icons/react'
 import type { Folder as FolderT, PersonPreview } from '../types'
@@ -193,7 +193,23 @@ const AvatarCropEditor = forwardRef<AvatarCropHandle, { src: string }>(function 
   const stageRef = useRef<HTMLDivElement>(null)
   const [box, setBox] = useState({ x: 0, y: 0, size: 0 })
   const [natural, setNatural] = useState({ w: 0, h: 0 })
+  const [stageSize, setStageSize] = useState({ w: 0, h: 0 })
   const dragRef = useRef<{ mode: 'move' | 'resize'; startX: number; startY: number; orig: { x: number; y: number; size: number } } | null>(null)
+
+  // Track the stage size so the contain-rect (where the image is actually
+  // drawn) stays in sync on window/modal resize.
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const cr = entry.contentRect
+        setStageSize({ w: cr.width, h: cr.height })
+      }
+    })
+    ro.observe(stage)
+    return () => ro.disconnect()
+  }, [])
 
   // Normalize the crop box to a square within [0, naturalW] x [0, naturalH].
   const clampBox = (x: number, y: number, size: number) => {
@@ -206,41 +222,38 @@ const AvatarCropEditor = forwardRef<AvatarCropHandle, { src: string }>(function 
     return { x, y, size }
   }
 
-  /** Rendered position/size of the img relative to the stage (px). */
-  const getPos = () => {
-    const img = imgRef.current
-    const stage = stageRef.current
-    if (!img || !stage) return null
-    const ir = img.getBoundingClientRect()
-    const sr = stage.getBoundingClientRect()
-    if (ir.width === 0 || ir.height === 0) return null
-    // getBoundingClientRect is viewport-relative; the absolutely-positioned
-    // crop box lives in the stage's CONTENT coordinates, so add the scroll
-    // offset — otherwise the box drifts away from the image when scrolled
-    // (e.g. the initial center-scroll on large photos).
+  /**
+   * The image is drawn with object-fit: contain, so it fills as much of the
+   * fixed stage as its aspect ratio allows. Compute that "contain rect" (px,
+   * stage-relative) once and derive every mapping from it — no scroll involved.
+   */
+  const contain = useMemo(() => {
+    if (stageSize.w === 0 || stageSize.h === 0 || natural.w === 0 || natural.h === 0) return null
+    const ratio = Math.min(stageSize.w / natural.w, stageSize.h / natural.h)
+    const width = natural.w * ratio
+    const height = natural.h * ratio
     return {
-      left: ir.left - sr.left + stage.scrollLeft,
-      top: ir.top - sr.top + stage.scrollTop,
-      width: ir.width,
-      height: ir.height,
+      left: (stageSize.w - width) / 2,
+      top: (stageSize.h - height) / 2,
+      width,
+      height,
+      ratio,
     }
-  }
+  }, [stageSize, natural])
 
   /** Cursor position in natural image coordinates. */
   const toNatural = (e: React.PointerEvent) => {
-    const img = imgRef.current
-    if (!img || natural.w === 0) return null
-    const ir = img.getBoundingClientRect()
-    if (ir.width === 0) return null
+    const stage = stageRef.current
+    if (!stage || !contain) return null
+    const sr = stage.getBoundingClientRect()
     return {
-      x: (e.clientX - ir.left) * (natural.w / ir.width),
-      y: (e.clientY - ir.top) * (natural.h / ir.height),
+      x: (e.clientX - sr.left - contain.left) / contain.ratio,
+      y: (e.clientY - sr.top - contain.top) / contain.ratio,
     }
   }
 
   const onImageLoad = () => {
     const img = imgRef.current
-    const stage = stageRef.current
     if (!img) return
     const w = img.naturalWidth
     const h = img.naturalHeight
@@ -250,13 +263,6 @@ const AvatarCropEditor = forwardRef<AvatarCropHandle, { src: string }>(function 
     const maxSize = Math.min(w, h)
     const size = Math.max(8, Math.round(maxSize * 0.8))
     setBox({ x: Math.round((w - size) / 2), y: Math.round((h - size) / 2), size })
-    // Center the initial scroll so the (centered) crop box is visible right
-    // away instead of the top-left corner of a large photo.
-    requestAnimationFrame(() => {
-      if (!stage) return
-      stage.scrollLeft = (stage.scrollWidth - stage.clientWidth) / 2
-      stage.scrollTop = (stage.scrollHeight - stage.clientHeight) / 2
-    })
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -284,15 +290,10 @@ const AvatarCropEditor = forwardRef<AvatarCropHandle, { src: string }>(function 
 
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current
-    if (!d) return
-    const img = imgRef.current
-    if (!img) return
-    const ir = img.getBoundingClientRect()
-    if (ir.width === 0) return
-    const scaleX = natural.w / ir.width
-    const scaleY = natural.h / ir.height
-    const dx = (e.clientX - d.startX) * scaleX
-    const dy = (e.clientY - d.startY) * scaleY
+    if (!d || !contain) return
+    const scale = 1 / contain.ratio
+    const dx = (e.clientX - d.startX) * scale
+    const dy = (e.clientY - d.startY) * scale
     if (d.mode === 'resize') {
       const size = Math.max(8, d.orig.size + Math.max(dx, dy))
       setBox(clampBox(d.orig.x, d.orig.y, size))
@@ -317,16 +318,15 @@ const AvatarCropEditor = forwardRef<AvatarCropHandle, { src: string }>(function 
     },
   }))
 
-  // Position the box in PIXELS relative to the stage, derived from the img's
-  // rendered rect — never percentages, which drift when the stage is wider than
-  // the image or scrolls (the classic cause of dead corners/handles).
-  const pos = getPos()
-  const boxStyle = pos
+  // Position the box in PIXELS relative to the stage, derived from the contain
+  // rect — never percentages, which drift when the stage is wider than the
+  // image or scrolls (the classic cause of dead corners/handles).
+  const boxStyle = contain
     ? {
-        left: pos.left + (box.x / natural.w) * pos.width,
-        top: pos.top + (box.y / natural.h) * pos.height,
-        width: (box.size / natural.w) * pos.width,
-        height: (box.size / natural.w) * pos.width,
+        left: contain.left + box.x * contain.ratio,
+        top: contain.top + box.y * contain.ratio,
+        width: box.size * contain.ratio,
+        height: box.size * contain.ratio,
       }
     : { left: 0, top: 0, width: 0, height: 0 }
 
@@ -348,7 +348,7 @@ const AvatarCropEditor = forwardRef<AvatarCropHandle, { src: string }>(function 
           className="avatar-crop-img"
           onLoad={onImageLoad}
         />
-        {natural.w > 0 && box.size > 0 && (
+        {contain && box.size > 0 && (
           <div className="avatar-crop-box" style={boxStyle}>
             <div className="avatar-crop-handle" />
           </div>
@@ -484,7 +484,6 @@ export function FacesBar({ persons, selectedPerson, onPersonClick, onAvatarSaved
   return (
     <div className="faces-bar">
       {persons.map((person) => {
-        const size = Math.min(64, 44 + (person.photo_count || 1) * 1.2)
         const imgSrc = person.avatar_url
           ? person.avatar_url
           : person.face_id
@@ -499,11 +498,9 @@ export function FacesBar({ persons, selectedPerson, onPersonClick, onAvatarSaved
           >
             <div className="face-chip">
               {imgSrc ? (
-                <img className="face-chip-img" style={{ width: size, height: size }} src={imgSrc} alt={person.name} />
+                <img className="face-chip-img" src={imgSrc} alt={person.name} />
               ) : (
-                <div className="face-chip-fallback" style={{ width: size, height: size }}>
-                  {person.name.charAt(0).toUpperCase()}
-                </div>
+                <div className="face-chip-fallback">{person.name.charAt(0).toUpperCase()}</div>
               )}
             </div>
             <button
