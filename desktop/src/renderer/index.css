@@ -524,39 +524,54 @@ html, body, #root {
   margin-bottom: 12px;
 }
 
-/* Manage photos page — stat cards */
+/* Manage photos page — stat cards (full-width, responsive grid) */
 .manage-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
+  width: 100%;
 }
 
 .manage-stat {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: 8px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 14px;
   color: var(--text-muted);
+  transition: border-color 0.15s, transform 0.15s;
 }
 
-.manage-stat svg {
+.manage-stat:hover {
+  border-color: var(--border-strong, var(--accent));
+}
+
+.manage-stat-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
 }
 
 .manage-stat-label {
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
+  font-weight: 500;
 }
 
 .manage-stat-value {
   font-size: 22px;
   font-weight: 700;
   color: var(--text);
+  line-height: 1;
 }
 
 .manage-placeholder {
@@ -586,24 +601,14 @@ html, body, #root {
   min-width: 0;
 }
 
-/* Manage photos — cleanup rows */
-.cleanup-msg {
-  font-size: 13px;
-  color: var(--accent);
-  margin-bottom: 12px;
-  padding: 8px 12px;
-  background: var(--surface);
-  border-radius: 8px;
-  border: 1px solid var(--border);
-}
-
-.cleanup-list {
+/* Manage photos — folder breakdown */
+.folder-breakdown-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.cleanup-row {
+.folder-breakdown-row {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -613,96 +618,25 @@ html, body, #root {
   border-radius: 10px;
 }
 
-.cleanup-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--text-muted);
-  flex-shrink: 0;
+.folder-breakdown-row.offline {
+  opacity: 0.6;
 }
 
-.cleanup-info {
+.folder-breakdown-info {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
-.cleanup-label {
+.folder-breakdown-name {
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
 }
 
-.cleanup-desc {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
-
-.cleanup-count {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text);
-  min-width: 40px;
-  text-align: right;
-}
-
-/* Duplicate review modal */
-.dup-modal {
-  max-width: 640px;
-}
-
-.dup-modal-body {
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  overflow-y: auto;
-  min-height: 0;
-}
-
-.dup-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.dup-group-title {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-}
-
-.dup-group-photos {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 10px;
-}
-
-.dup-photo {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  background: var(--surface-2);
-  border-radius: 8px;
-  border: 1px solid var(--border);
-}
-
-.dup-photo img {
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
-  border-radius: 6px;
-  background: var(--surface);
-}
-
-.dup-photo-path {
+.folder-breakdown-path {
   font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
@@ -710,8 +644,25 @@ html, body, #root {
   text-overflow: ellipsis;
 }
 
-.dup-photo .btn {
-  justify-content: center;
+.folder-breakdown-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.folder-offline-badge {
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .queue-list {
