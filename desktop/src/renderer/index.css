@@ -1370,6 +1370,146 @@ html, body, #root {
   color: #ef4444;
 }
 
+/* Link-face modal — pick an explicit target person for an unassigned face.
+   The face being linked is pinned at the TOP; below it a searchable list of
+   every person WITH a representative face crop (match by sight). */
+.assign-modal {
+  max-width: 460px;
+}
+
+.assign-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+  min-height: 0;
+}
+
+/* The face being linked — crop + label, pinned at the top */
+.assign-modal-target {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.assign-target-crop {
+  flex-shrink: 0;
+}
+
+.assign-face-crop {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.assign-target-info {
+  min-width: 0;
+}
+
+.assign-target-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.assign-target-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.assign-modal-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+
+.assign-modal-search:focus-within {
+  border-color: var(--accent);
+}
+
+.assign-modal-search input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+
+.assign-modal-list {
+  flex: 1;
+  min-height: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 2px;
+}
+
+.assign-modal-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.assign-modal-item:hover {
+  background: var(--surface-2);
+}
+
+/* Representative face crop for each person in the list */
+.assign-person-crop {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--bg);
+  flex-shrink: 0;
+}
+
+.assign-modal-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.assign-modal-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.assign-modal-empty {
+  padding: 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
 /* Thumbnail rail (bottom) — horizontal scroll, own nav */
 .photo-rail {
   flex-shrink: 0;

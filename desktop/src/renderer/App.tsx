@@ -583,6 +583,8 @@ export default function App() {
           selectedPerson={selectedPerson}
           personName={persons.find(p => p.person_id === selectedPhoto.person_id)?.name}
           onFaceClick={handleFaceClick}
+          persons={persons}
+          previews={personPreviews}
           onPersonChanged={() => { loadPersons(); loadFolders(); loadTrashCount() }}
         />
       )}

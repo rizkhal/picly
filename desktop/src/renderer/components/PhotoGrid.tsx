@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { PencilSimple, LinkBreak } from '@phosphor-icons/react'
-import type { Photo, Person } from '../types'
+import { PencilSimple, LinkBreak, LinkSimple, MagnifyingGlass } from '@phosphor-icons/react'
+import type { Photo, Person, PersonPreview } from '../types'
 import * as ipc from '../lib/electron'
 
 type ModalFace = { faceId: string; x1: number; y1: number; x2: number; y2: number; personId: string | null; personName: string | null; faceQuality?: string; lowQuality?: boolean; qualityScore?: number }
@@ -61,14 +61,15 @@ export function PhotoGrid({ photos, onOpenPhoto }: PhotoGridProps) {
 
 /**
  * One face row inside the detail panel: crop thumbnail + person name (inline
- * editable) + actions. Rename edits the whole person (all its faces); unassign
- * detaches this single face; an unassigned face can be joined to the currently
- * filtered person. Low-quality crops are blurred so low-res/out-of-focus faces
- * don't dominate the panel.
+ * editable) + actions. Rename edits the whole person (all its faces); unlink
+ * detaches this single face; an unassigned face can be linked to any person
+ * (explicit target picked in a modal — never implicitly the filtered person).
+ * Low-quality crops are blurred so low-res/out-of-focus faces don't dominate.
  */
-function DetailFaceRow({ face, onEdited }: {
+function DetailFaceRow({ face, onEdited, onLink }: {
   face: ModalFace
   onEdited: () => void
+  onLink: (face: ModalFace) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState('')
@@ -93,6 +94,11 @@ function DetailFaceRow({ face, onEdited }: {
     if (!confirm(`Remove this face from "${face.personName}"?`)) return
     await ipc.local.setFacePerson(face.faceId, null)
     onEdited()
+  }
+
+  const link = () => {
+    if (face.personId) return
+    onLink(face)
   }
 
   const low = face.lowQuality || face.faceQuality === 'very_low'
@@ -136,6 +142,112 @@ function DetailFaceRow({ face, onEdited }: {
             <LinkBreak size={13} />
           </button>
         )}
+        {!face.personId && (
+          <button className="detail-icon-btn" title="Link face to a person" onClick={link}>
+            <LinkSimple size={13} />
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Link-face modal — pick the EXPLICIT target person for an unassigned face.
+ * Never defaults to the currently-filtered person (that implicit behavior
+ * caused confusing "merged into the top" assignments before).
+ *
+ * Layout: the face being linked sits at the TOP (with its crop), the list
+ * below shows every person WITH a representative face crop, so you can match
+ * by sight instead of by name.
+ */
+function AssignFaceModal({ face, persons, previews, onAssign, onClose }: {
+  face: ModalFace
+  persons: Person[]
+  previews: PersonPreview[]
+  onAssign: (personId: string) => void
+  onClose: () => void
+}) {
+  const [q, setQ] = useState('')
+  const [busy, setBusy] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  const previewById = new Map(previews.map((p) => [p.person_id, p]))
+
+  const filtered = persons
+    .filter((p) => {
+      const s = q.trim().toLowerCase()
+      return !s || p.name.toLowerCase().includes(s)
+    })
+    .sort((a, b) => b.photo_count - a.photo_count)
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal assign-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-title">Link face to a person</div>
+          <button className="modal-close" onClick={onClose} title="Close (Esc)">×</button>
+        </div>
+        <div className="assign-modal-body">
+          {/* The face being linked — pinned to the top so the target is obvious */}
+          <div className="assign-modal-target">
+            <div className="assign-target-crop">
+              <img src={`picly://face/${face.faceId}.jpg`} alt="" className="assign-face-crop" />
+            </div>
+            <div className="assign-target-info">
+              <div className="assign-target-label">Linking face</div>
+              <div className="assign-target-hint">Pick the person this face belongs to</div>
+            </div>
+          </div>
+
+          <div className="assign-modal-search">
+            <MagnifyingGlass size={13} />
+            <input
+              ref={inputRef}
+              autoFocus
+              placeholder="Search persons…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') onClose()
+              }}
+            />
+          </div>
+
+          <div className="assign-modal-list">
+            {filtered.length === 0 && (
+              <div className="assign-modal-empty">No matching persons.</div>
+            )}
+            {filtered.map((p) => {
+              const prev = previewById.get(p.person_id)
+              return (
+                <button
+                  key={p.person_id}
+                  className="assign-modal-item"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true)
+                    await onAssign(p.person_id)
+                    setBusy(false)
+                    onClose()
+                  }}
+                >
+                  <img
+                    src={prev?.face_id ? `picly://face/${prev.face_id}.jpg` : undefined}
+                    alt=""
+                    className="assign-person-crop"
+                  />
+                  <span className="assign-modal-name">{p.name}</span>
+                  <span className="assign-modal-count">{p.photo_count} photos</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -153,6 +265,7 @@ type PhotoModalProps = {
   selectedPerson: string | null
   personName?: string
   persons?: Person[]
+  previews?: PersonPreview[]
   // Click-face-to-filter: navigate to a person
   onFaceClick: (personId: string) => void
   // Called after a person edit (rename/unassign/assign) so the sidebar + grid
@@ -160,7 +273,7 @@ type PhotoModalProps = {
   onPersonChanged: () => void
 }
 
-export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLocation, onDeletePhoto, selectedPerson, personName, onFaceClick, onPersonChanged }: PhotoModalProps) {
+export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLocation, onDeletePhoto, selectedPerson, personName, persons = [], previews = [], onFaceClick, onPersonChanged }: PhotoModalProps) {
   // Pinch-zoom: scale + pan (trackpad pinch zooms to cursor; two-finger
   // scroll / drag pans when zoomed; double-click resets). Reset per photo.
   const [zoom, setZoom] = useState<ZoomState>({ s: 1, tx: 0, ty: 0 })
@@ -184,6 +297,8 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
   // --- Faces for the overlay + detail panel ---
   const [faces, setFaces] = useState<ModalFace[]>([])
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null)
+  // Face being linked to a person (opens the AssignFaceModal).
+  const [linkFace, setLinkFace] = useState<ModalFace | null>(null)
   // True when the ORIGINAL source file is missing (deleted / unmounted volume).
   // The preview then falls back to the thumbnail cache so the user still sees
   // something, plus a notice explains why full-res is unavailable.
@@ -201,7 +316,7 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
     loadFaces()
   }, [photo.photo_id])
 
-  // Called after rename / unassign / assign — refetch faces (names change) and
+  // Called after rename / unlink / link — refetch faces (names change) and
   // let the parent refresh sidebar + grid counts.
   const refreshFaces = async () => {
     await loadFaces()
@@ -298,6 +413,12 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
     return parts[parts.length - 1]
   }
 
+  const linkFaceTo = async (personId: string) => {
+    if (!linkFace) return
+    await ipc.local.setFacePerson(linkFace.faceId, personId)
+    await refreshFaces()
+  }
+
   return (
     <div className="modal-overlay">
       <div className="modal modal-photo">
@@ -354,10 +475,11 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                           width: `${f.width}%`,
                           height: `${f.height}%`,
                         }}
-                        title={f.personName || 'Unassigned'}
+                        title={f.personName || 'Unassigned — click to link to a person'}
                         onClick={(e) => {
                           e.stopPropagation()
                           if (f.personId) onFaceClick(f.personId)
+                          else setLinkFace(f)
                         }}
                       />
                     ))}
@@ -394,6 +516,7 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                         key={f.faceId}
                         face={f}
                         onEdited={refreshFaces}
+                        onLink={setLinkFace}
                       />
                     ))}
                   </>
@@ -407,8 +530,23 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                       key={f.faceId}
                       face={f}
                       onEdited={refreshFaces}
+                      onLink={setLinkFace}
                     />
                   ))
+                )}
+                {/* Unassigned faces — hidden entirely when there are none */}
+                {faces.some((f) => f.personId === null) && (
+                  <>
+                    <div className="detail-section-title">Unassigned faces ({faces.filter((f) => f.personId === null).length})</div>
+                    {faces.filter((f) => f.personId === null).map((f) => (
+                      <DetailFaceRow
+                        key={f.faceId}
+                        face={f}
+                        onEdited={refreshFaces}
+                        onLink={setLinkFace}
+                      />
+                    ))}
+                  </>
                 )}
               </div>
 
@@ -444,6 +582,17 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
           <button className="btn btn-danger" onClick={onDeletePhoto}>Move to Trash</button>
         </div>
       </div>
+
+      {/* Link-face modal — explicit target person (never the filtered one) */}
+      {linkFace && (
+        <AssignFaceModal
+          face={linkFace}
+          persons={persons}
+          previews={previews}
+          onAssign={linkFaceTo}
+          onClose={() => setLinkFace(null)}
+        />
+      )}
     </div>
   )
 }
