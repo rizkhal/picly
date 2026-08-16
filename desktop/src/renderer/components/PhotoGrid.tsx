@@ -153,14 +153,14 @@ type PhotoModalProps = {
   selectedPerson: string | null
   personName?: string
   persons?: Person[]
-  // Click-face-to-filter: navigate to a person (or open manage for unassigned)
+  // Click-face-to-filter: navigate to a person
   onFaceClick: (personId: string) => void
   // Called after a person edit (rename/unassign/assign) so the sidebar + grid
   // refresh with the new names/counts.
   onPersonChanged: () => void
 }
 
-export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLocation, onDeletePhoto, selectedPerson, personName, persons = [], onFaceClick, onPersonChanged }: PhotoModalProps) {
+export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLocation, onDeletePhoto, selectedPerson, personName, onFaceClick, onPersonChanged }: PhotoModalProps) {
   // Pinch-zoom: scale + pan (trackpad pinch zooms to cursor; two-finger
   // scroll / drag pans when zoomed; double-click resets). Reset per photo.
   const [zoom, setZoom] = useState<ZoomState>({ s: 1, tx: 0, ty: 0 })
@@ -184,8 +184,6 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
   // --- Faces for the overlay + detail panel ---
   const [faces, setFaces] = useState<ModalFace[]>([])
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null)
-  const [assignFace, setAssignFace] = useState<ModalFace | null>(null)
-  const [assignSearch, setAssignSearch] = useState('')
   // True when the ORIGINAL source file is missing (deleted / unmounted volume).
   // The preview then falls back to the thumbnail cache so the user still sees
   // something, plus a notice explains why full-res is unavailable.
@@ -202,15 +200,6 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
   useEffect(() => {
     loadFaces()
   }, [photo.photo_id])
-
-  // Assign a face (picked from the preview) to an explicit person.
-  const assignFaceTo = async (personId: string) => {
-    if (!assignFace) return
-    await ipc.local.setFacePerson(assignFace.faceId, personId)
-    setAssignFace(null)
-    setAssignSearch('')
-    await refreshFaces()
-  }
 
   // Called after rename / unassign / assign — refetch faces (names change) and
   // let the parent refresh sidebar + grid counts.
@@ -365,14 +354,10 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                           width: `${f.width}%`,
                           height: `${f.height}%`,
                         }}
-                        title={f.personName || 'Click to assign to a person'}
+                        title={f.personName || 'Unassigned'}
                         onClick={(e) => {
                           e.stopPropagation()
                           if (f.personId) onFaceClick(f.personId)
-                          else {
-                            setAssignFace(f)
-                            setAssignSearch('')
-                          }
                         }}
                       />
                     ))}
@@ -427,46 +412,6 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                 )}
               </div>
 
-              {/* Assign picker — shown when an unassigned face box is clicked */}
-              {assignFace && (
-                <div className="detail-picker detail-picker-anchored">
-                  <div className="detail-picker-header">Assign face to person…</div>
-                  <input
-                    className="detail-picker-search"
-                    autoFocus
-                    placeholder="Search persons… (Esc to close)"
-                    value={assignSearch}
-                    onChange={(e) => setAssignSearch(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Escape') { setAssignFace(null); setAssignSearch('') }
-                    }}
-                  />
-                  <div className="detail-picker-list">
-                    {persons.filter((p) => {
-                      const s = assignSearch.trim().toLowerCase()
-                      return !s || p.name.toLowerCase().includes(s)
-                    }).length === 0 && (
-                      <div className="detail-picker-empty">No matching persons.</div>
-                    )}
-                    {persons
-                      .filter((p) => {
-                        const s = assignSearch.trim().toLowerCase()
-                        return !s || p.name.toLowerCase().includes(s)
-                      })
-                      .sort((a, b) => {
-                        if (a.person_id === selectedPerson) return -1
-                        if (b.person_id === selectedPerson) return 1
-                        return b.photo_count - a.photo_count
-                      })
-                      .map((p) => (
-                        <button key={p.person_id} className="detail-picker-item" onClick={() => assignFaceTo(p.person_id)}>
-                          <span className="detail-picker-name">{p.name}</span>
-                          <span className="detail-picker-count">{p.photo_count} photos</span>
-                        </button>
-                      ))}
-                  </div>
-                </div>
-              )}
             </aside>
           </div>
 

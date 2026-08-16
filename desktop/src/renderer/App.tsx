@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { MagnifyingGlass, Camera, Queue, ArrowClockwise } from '@phosphor-icons/react'
+import { MagnifyingGlass, Camera, Queue, ArrowClockwise, X } from '@phosphor-icons/react'
 import type { Folder, Photo } from './types'
 import { useLibrary } from './hooks/useLibrary'
 import { useScans } from './hooks/useScans'
