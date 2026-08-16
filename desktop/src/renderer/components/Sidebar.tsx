@@ -191,10 +191,18 @@ type AvatarCropHandle = {
 const AvatarCropEditor = forwardRef<AvatarCropHandle, { src: string }>(function AvatarCropEditor({ src }, ref) {
   const imgRef = useRef<HTMLImageElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
-  const [box, setBox] = useState({ x: 0, y: 0, size: 0 })
   const [natural, setNatural] = useState({ w: 0, h: 0 })
   const [stageSize, setStageSize] = useState({ w: 0, h: 0 })
-  const dragRef = useRef<{ mode: 'move' | 'resize'; startX: number; startY: number; orig: { x: number; y: number; size: number } } | null>(null)
+  // zoom: how much the photo is scaled beyond its contain fit. center: the
+  // natural-image point the photo is anchored on (stage center). squarePx: the
+  // on-screen crop frame size. Shrinking the frame zooms the photo in.
+  const [zoom, setZoom] = useState(1)
+  const [center, setCenter] = useState({ x: 0, y: 0 })
+  const [squarePx, setSquarePx] = useState(320)
+  const dragRef = useRef<{ mode: 'move' | 'resize'; startX: number; startY: number; origZoom: number; origSquarePx: number; origCenter: { x: number; y: number } } | null>(null)
+
+  const MAX_ZOOM = 8
+  const MIN_PX = 80
 
   // Track the stage size so the contain-rect (where the image is actually
   // drawn) stays in sync on window/modal resize.
@@ -211,94 +219,114 @@ const AvatarCropEditor = forwardRef<AvatarCropHandle, { src: string }>(function 
     return () => ro.disconnect()
   }, [])
 
-  // Normalize the crop box to a square within [0, naturalW] x [0, naturalH].
-  const clampBox = (x: number, y: number, size: number) => {
-    const { w, h } = natural
-    if (w === 0 || h === 0) return { x: 0, y: 0, size: 0 }
-    const maxSize = Math.min(w, h)
-    size = Math.max(8, Math.min(size, maxSize))
-    x = Math.max(0, Math.min(x, w - size))
-    y = Math.max(0, Math.min(y, h - size))
-    return { x, y, size }
-  }
-
-  /**
-   * The image is drawn with object-fit: contain, so it fills as much of the
-   * fixed stage as its aspect ratio allows. Compute that "contain rect" (px,
-   * stage-relative) once and derive every mapping from it — no scroll involved.
-   */
+  /** Base layout at zoom = 1: the image fills as much of the stage as its
+   *  aspect ratio allows (object-fit contain equivalent). */
   const contain = useMemo(() => {
     if (stageSize.w === 0 || stageSize.h === 0 || natural.w === 0 || natural.h === 0) return null
     const ratio = Math.min(stageSize.w / natural.w, stageSize.h / natural.h)
-    const width = natural.w * ratio
-    const height = natural.h * ratio
     return {
-      left: (stageSize.w - width) / 2,
-      top: (stageSize.h - height) / 2,
-      width,
-      height,
+      left: (stageSize.w - natural.w * ratio) / 2,
+      top: (stageSize.h - natural.h * ratio) / 2,
+      width: natural.w * ratio,
+      height: natural.h * ratio,
       ratio,
     }
   }, [stageSize, natural])
 
-  /** Cursor position in natural image coordinates. */
-  const toNatural = (e: React.PointerEvent) => {
-    const stage = stageRef.current
-    if (!stage || !contain) return null
-    const sr = stage.getBoundingClientRect()
+  const renderScale = contain ? contain.ratio * zoom : 0
+
+  // Rendered image rect: anchored so `center` sits at the stage center, scaled
+  // by renderScale.
+  const imgRect = useMemo(() => {
+    if (renderScale <= 0 || natural.w === 0) return null
     return {
-      x: (e.clientX - sr.left - contain.left) / contain.ratio,
-      y: (e.clientY - sr.top - contain.top) / contain.ratio,
+      left: stageSize.w / 2 - center.x * renderScale,
+      top: stageSize.h / 2 - center.y * renderScale,
+      width: natural.w * renderScale,
+      height: natural.h * renderScale,
+      scale: renderScale,
     }
+  }, [renderScale, center, natural, stageSize])
+
+  const frameNatural = renderScale > 0 ? squarePx / renderScale : 0
+  // Crop box in natural coordinates, centered on `center`.
+  const box = useMemo(() => {
+    if (frameNatural <= 0 || natural.w === 0) return { x: 0, y: 0, size: 0 }
+    return { x: center.x - frameNatural / 2, y: center.y - frameNatural / 2, size: frameNatural }
+  }, [center, frameNatural, natural])
+
+  const clampAxis = (v: number, max: number, half: number) => {
+    if (max <= 0) return 0
+    // Frame bigger than the photo on this axis -> lock to the middle.
+    if (half * 2 >= max) return max / 2
+    return Math.max(half, Math.min(v, max - half))
   }
+  const clampCenter = (c: { x: number; y: number }, halfN: number) => ({
+    x: clampAxis(c.x, natural.w, halfN),
+    y: clampAxis(c.y, natural.h, halfN),
+  })
+
+  // Keep the frame inside the stage and inside the rendered image.
+  useEffect(() => {
+    if (!imgRect) return
+    const maxBase = Math.min(stageSize.w, stageSize.h) * 0.85
+    const maxImg = Math.min(imgRect.width, imgRect.height) - 8
+    const maxPx = Math.max(MIN_PX, Math.min(maxBase, maxImg))
+    setSquarePx((cur) => Math.max(MIN_PX, Math.min(cur, maxPx)))
+  }, [imgRect, stageSize])
 
   const onImageLoad = () => {
-    const img = imgRef.current
-    if (!img) return
-    const w = img.naturalWidth
-    const h = img.naturalHeight
+    const w = imgRef.current?.naturalWidth ?? 0
+    const h = imgRef.current?.naturalHeight ?? 0
     setNatural({ w, h })
-    // Default to a centered 80% square so both axes stay movable and there's
-    // room to grow/shrink (a full-size default locks one axis on non-square photos).
-    const maxSize = Math.min(w, h)
-    const size = Math.max(8, Math.round(maxSize * 0.8))
-    setBox({ x: Math.round((w - size) / 2), y: Math.round((h - size) / 2), size })
+    setZoom(1)
+    setCenter({ x: w / 2, y: h / 2 })
+    setSquarePx(320)
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
-    const pt = toNatural(e)
-    if (!pt) return
+    const stage = stageRef.current
+    if (!stage || !imgRect || box.size <= 0) return
     e.preventDefault()
-    // Capture the pointer so move/up keep firing even when the cursor leaves
-    // the stage (e.g. fast drags or the crop box sitting on top of the img).
     try {
       e.currentTarget.setPointerCapture(e.pointerId)
     } catch { /* already released */ }
-    const { x, y } = pt
-    // Grab near the bottom-right corner (including the handle, which sticks
-    // out a few px past the box edge) -> resize. Checked BEFORE the inside-box
-    // test, otherwise the corner/handle never reaches resize mode.
+    const sr = stage.getBoundingClientRect()
+    const px = e.clientX - sr.left
+    const py = e.clientY - sr.top
+    const boxLeft = imgRect.left + box.x * imgRect.scale
+    const boxTop = imgRect.top + box.y * imgRect.scale
+    const boxSize = box.size * imgRect.scale // == squarePx
+    // Corner grab (incl. the handle, which sticks out past the edge) -> resize.
     const cornerPad = 40
-    if (x >= box.x + box.size - cornerPad && y >= box.y + box.size - cornerPad) {
-      dragRef.current = { mode: 'resize', startX: e.clientX, startY: e.clientY, orig: { ...box } }
+    if (px >= boxLeft + boxSize - cornerPad && py >= boxTop + boxSize - cornerPad) {
+      dragRef.current = { mode: 'resize', startX: e.clientX, startY: e.clientY, origZoom: zoom, origSquarePx: squarePx, origCenter: center }
       return
     }
-    if (x >= box.x && x <= box.x + box.size && y >= box.y && y <= box.y + box.size) {
-      dragRef.current = { mode: 'move', startX: e.clientX, startY: e.clientY, orig: { ...box } }
+    if (px >= boxLeft && px <= boxLeft + boxSize && py >= boxTop && py <= boxTop + boxSize) {
+      dragRef.current = { mode: 'move', startX: e.clientX, startY: e.clientY, origZoom: zoom, origSquarePx: squarePx, origCenter: center }
     }
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current
     if (!d || !contain) return
-    const scale = 1 / contain.ratio
-    const dx = (e.clientX - d.startX) * scale
-    const dy = (e.clientY - d.startY) * scale
+    const dx = e.clientX - d.startX
+    const dy = e.clientY - d.startY
     if (d.mode === 'resize') {
-      const size = Math.max(8, d.orig.size + Math.max(dx, dy))
-      setBox(clampBox(d.orig.x, d.orig.y, size))
+      // Shrink the frame -> zoom the photo in (frame stays put on screen), grow
+      // it -> zoom out. frameNatural therefore tracks the drag continuously.
+      const maxBase = Math.min(stageSize.w, stageSize.h) * 0.85
+      const maxImg = Math.min(imgRect ? imgRect.width : 0, imgRect ? imgRect.height : 0) - 8
+      const maxPx = Math.max(MIN_PX, Math.min(maxBase, maxImg))
+      const newPx = Math.max(MIN_PX, Math.min(d.origSquarePx + Math.max(dx, dy), maxPx))
+      const newZoom = Math.min(MAX_ZOOM, Math.max(1, (d.origZoom * d.origSquarePx) / newPx))
+      setZoom(newZoom)
+      setSquarePx(newPx)
+      setCenter((c) => clampCenter(c, newPx / (contain.ratio * newZoom) / 2))
     } else {
-      setBox(clampBox(d.orig.x + dx, d.orig.y + dy, d.orig.size))
+      const scale = contain.ratio * d.origZoom
+      setCenter((c) => clampCenter({ x: d.origCenter.x - dx / scale, y: d.origCenter.y - dy / scale }, d.origSquarePx / (contain.ratio * d.origZoom) / 2))
     }
   }
 
@@ -318,15 +346,12 @@ const AvatarCropEditor = forwardRef<AvatarCropHandle, { src: string }>(function 
     },
   }))
 
-  // Position the box in PIXELS relative to the stage, derived from the contain
-  // rect — never percentages, which drift when the stage is wider than the
-  // image or scrolls (the classic cause of dead corners/handles).
-  const boxStyle = contain
+  const boxStyle = imgRect && box.size > 0
     ? {
-        left: contain.left + box.x * contain.ratio,
-        top: contain.top + box.y * contain.ratio,
-        width: box.size * contain.ratio,
-        height: box.size * contain.ratio,
+        left: imgRect.left + box.x * imgRect.scale,
+        top: imgRect.top + box.y * imgRect.scale,
+        width: box.size * imgRect.scale,
+        height: box.size * imgRect.scale,
       }
     : { left: 0, top: 0, width: 0, height: 0 }
 
@@ -347,14 +372,15 @@ const AvatarCropEditor = forwardRef<AvatarCropHandle, { src: string }>(function 
           draggable={false}
           className="avatar-crop-img"
           onLoad={onImageLoad}
+          style={imgRect ? { left: imgRect.left, top: imgRect.top, width: imgRect.width, height: imgRect.height } : undefined}
         />
-        {contain && box.size > 0 && (
+        {box.size > 0 && imgRect && (
           <div className="avatar-crop-box" style={boxStyle}>
             <div className="avatar-crop-handle" />
           </div>
         )}
       </div>
-      <div className="avatar-crop-hint">Drag to move the square, grab the corner to resize. The square is what gets saved.</div>
+      <div className="avatar-crop-hint">Drag the square to move it, drag the corner to zoom in and out. The square is what gets saved.</div>
     </div>
   )
 })

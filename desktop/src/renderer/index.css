@@ -2614,17 +2614,17 @@ html, body, #root {
   touch-action: none;
   user-select: none;
   -webkit-user-drag: none;
+  cursor: grab;
 }
 
+.avatar-crop-stage:active { cursor: grabbing; }
+
 .avatar-crop-img {
-  /* object-fit: contain — whole image fits inside the fixed stage; the crop
-     box moves/resizes on top of it. Coordinate mapping uses the contain-rect
-     computed in JS, so the displayed size and the math always agree. */
+  /* Positioned in JS (absolute left/top/width/height): at zoom = 1 it matches
+     the contain rect; zooming scales the photo up while the crop frame stays
+     fixed on screen. */
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  max-width: none;
   user-select: none;
   -webkit-user-drag: none;
   pointer-events: none;
