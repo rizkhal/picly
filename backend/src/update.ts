@@ -26,12 +26,14 @@ export interface UpdateManifest {
 }
 
 const manifest: UpdateManifest = {
-  version: '1.1.0',
+  version: '1.0.1',
   url: 'https://github.com/rizkhal/picly/releases/latest',
   notes: [
-    'Face detection & recognition now run fully on-device (ONNX, no Python).',
-    'Quality gate (eDifFIQA) removes blurry/low-quality faces automatically.',
-    'New model versions bundled: SCRFD det_10g, ArcFace w600k_r50, eDifFIQA.',
+    'Person avatars: upload a photo and crop it (resize corner to zoom).',
+    'New Scan photos page with drag & drop folder upload and per-file progress.',
+    'Manage photos: library overview with folder breakdown + storage stats, and a cleanup section.',
+    'Global search by person name; link unassigned faces from the photo detail.',
+    'Detection: pose + false-positive angle gate to reject banners/shoulders.',
   ],
   models: {
     detector: 'det_10g',
