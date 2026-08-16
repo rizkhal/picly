@@ -357,6 +357,26 @@ export class PhotoStore {
       .all(personId, limit) as Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null }>
   }
 
+  /**
+   * Global text search by PERSON NAME — photos that contain a face belonging to
+   * a person whose name matches the query (case-insensitive substring). Scans
+   * the whole library regardless of the current scope (folder/person filter).
+   */
+  searchPhotosByName(query: string, limit = 500): Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null; personId: string; personName: string }> {
+    const q = `%${query.trim().toLowerCase()}%`
+    return this.db
+      .prepare(
+        `SELECT DISTINCT p.id AS photoId, p.path, p.thumb_path AS thumbPath, p.width, p.height,
+                pe.id AS personId, pe.name AS personName
+         FROM persons pe
+         JOIN faces f ON f.person_id = pe.id
+         JOIN photos p ON p.id = f.photo_id
+         WHERE LOWER(pe.name) LIKE ? AND p.deleted_at IS NULL
+         ORDER BY p.created_at DESC LIMIT ?`,
+      )
+      .all(q, limit) as Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null; personId: string; personName: string }>
+  }
+
   /** Photos that were scanned but have NO detected faces (landscape, docs, blank…). */
   listPhotosNoFaces(limit = 500): Array<{ photoId: string; path: string; thumbPath: string | null; width: number | null; height: number | null }> {
     return this.db

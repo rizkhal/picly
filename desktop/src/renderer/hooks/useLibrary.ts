@@ -105,6 +105,22 @@ export function useLibrary() {
     }
   }, [])
 
+  // Global text search by person name — the whole library (ignores scope)
+  const searchByName = useCallback(async (query: string): Promise<Photo[]> => {
+    const q = query.trim()
+    if (!q) return []
+    const rows = await ipc.local.searchPhotosByName(q)
+    return (rows || []).map((r: any) => ({
+      photo_id: r.photoId || r.photo_id,
+      path: r.path || '',
+      thumb_path: r.thumbUrl ?? r.thumbPath,
+      person_id: r.personId || r.person_id,
+      person_name: r.personName || null,
+      width: r.width ?? null,
+      height: r.height ?? null,
+    }))
+  }, [])
+
   // Local services status — no backend health check needed (drive status shows
   // whether the store is ready; local scan/search work offline by design).
   useEffect(() => {
@@ -143,5 +159,6 @@ export function useLibrary() {
     loadTrashPhotos,
     loadTrashCount,
     searchFace,
+    searchByName,
   }
 }

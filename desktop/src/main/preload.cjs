@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('electron', {
     emptyTrash: () => ipcRenderer.invoke('local:empty-trash'),
     searchPhoto: (photoPath) => ipcRenderer.invoke('local:search-photo', photoPath),
     searchStoredPhoto: (photoId) => ipcRenderer.invoke('local:search-stored-photo', photoId),
+    searchPhotosByName: (query) => ipcRenderer.invoke('local:search-photos-by-name', query),
     scanFolder: (folderPath) => ipcRenderer.invoke('local:scan-folder', folderPath),
     rescanFolder: (folderPath) => ipcRenderer.invoke('local:rescan-folder', folderPath),
     cancelScan: (scanId) => ipcRenderer.invoke('local:scan-cancel', scanId),

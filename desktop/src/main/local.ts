@@ -155,6 +155,14 @@ export function listPersonPhotos(services: LocalServices, personId: string, limi
   }))
 }
 
+/** Global search by person name — photos of matching persons, mapped URLs. */
+export function searchPhotosByName(services: LocalServices, query: string, limit = 500): unknown[] {
+  return services.store.searchPhotosByName(query, limit).map((p) => ({
+    ...p,
+    thumbUrl: p.thumbPath ? `picly://thumb/${path.basename(p.thumbPath)}` : null,
+  }))
+}
+
 /** Photos with no detected faces (landscape/docs/blank), thumbnails mapped. */
 export function listPhotosNoFaces(services: LocalServices, limit = 500): unknown[] {
   return services.store.listPhotosNoFaces(limit).map((p) => ({

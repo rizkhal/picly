@@ -249,6 +249,10 @@ function registerLocalIpc() {
   ipcMain.handle('local:search-stored-photo', async (_e, photoId) => {
     return require('../../dist-main/local.js').searchStoredPhoto(getLocalServices(), photoId);
   });
+  ipcMain.handle('local:search-photos-by-name', (_e, query) => {
+    const local = getLocalServices();
+    return require('../../dist-main/local.js').searchPhotosByName(local, String(query || ''));
+  });
 
   ipcMain.handle('local:scan-folder', (e, folderPath) => {
     const win = BrowserWindow.fromWebContents(e.sender);

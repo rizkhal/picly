@@ -26,7 +26,7 @@ export default function App() {
     persons, personPreviews, folders, photos, setPhotos,
     loading, setLoading, driveStatus, scopeRef, trashCount,
     showSingletons, toggleShowSingletons,
-    loadFolders, loadPersons, loadPhotos, loadTrashPhotos, loadTrashCount, searchFace,
+    loadFolders, loadPersons, loadPhotos, loadTrashPhotos, loadTrashCount, searchFace, searchByName,
   } = library
 
   // Scan engine: 3-state (pause/resume/remove) + progress subscription
@@ -57,6 +57,7 @@ export default function App() {
   const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null)
   const [trashSelected, setTrashSelected] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchByNameActive, setSearchByNameActive] = useState(false)
   const [searchFacesDetected, setSearchFacesDetected] = useState<number | null>(null)
   const [searchMatchedPersons, setSearchMatchedPersons] = useState<string[]>([])
   const [scanError, setScanError] = useState<string | null>(null)
@@ -131,38 +132,45 @@ export default function App() {
   // Handle person selection
   const handlePersonClick = (personId: string) => {
     setPage('library')
+    if (searchByNameActive) exitSearch()
     if (selectedPerson === personId) {
       setSelectedPerson(null)
       setSelectedFolder(null)
       setTrashSelected(false)
       setPhotos([])
-    } else {
-      setSelectedPerson(personId)
-      setSelectedFolder(null)
-      setTrashSelected(false)
-      loadPhotos(personId)
+      loadPhotos()
+      return
     }
+    setSelectedPerson(personId)
+    setSelectedFolder(null)
+    setTrashSelected(false)
+    setPhotos([])
+    loadPhotos(personId)
   }
 
   // Handle folder selection — photos are scoped to this folder only
   const handleFolderClick = (folder: Folder) => {
     setPage('library')
+    if (searchByNameActive) exitSearch()
     if (selectedFolder?.folder_id === folder.folder_id) {
       setSelectedFolder(null)
       setSelectedPerson(null)
       setTrashSelected(false)
       setPhotos([])
-    } else {
-      setSelectedFolder(folder)
-      setSelectedPerson(null)
-      setTrashSelected(false)
-      loadPhotos(null, null, folder.container_path)
+      loadPhotos()
+      return
     }
+    setSelectedFolder(folder)
+    setSelectedPerson(null)
+    setTrashSelected(false)
+    setPhotos([])
+    loadPhotos(null, null, folder.container_path)
   }
 
   // Handle "Trash" selection — soft-deleted photos (restore / empty trash)
   const handleTrashClick = () => {
     setPage('library')
+    if (searchByNameActive) exitSearch()
     if (trashSelected) {
       setTrashSelected(false)
       setSelectedFolder(null)
@@ -196,6 +204,42 @@ export default function App() {
       setLoading(false)
     }
   }
+
+  // Text search — matches file path AND person name (global, ignores scope).
+  // Debounced: keystrokes don't fire a query each time; the DB LIKE is cheap.
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const handleSearchQueryChange = useCallback((value: string) => {
+    setSearchQuery(value)
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    const q = value.trim()
+    if (!q) {
+      setSearchByNameActive(false)
+      loadPhotos(selectedPerson || null, null, selectedFolder?.container_path || null)
+      return
+    }
+    setSearchByNameActive(true)
+    setLoading(true)
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const rows = await searchByName(q)
+        setPhotos(rows)
+        setSearchFacesDetected(null)
+        setSearchMatchedPersons([])
+      } catch (err) {
+        console.error('Search by name failed', err)
+      } finally {
+        setLoading(false)
+      }
+    }, 250)
+  }, [searchByName, loadPhotos, selectedPerson, selectedFolder])
+
+  // Leaving search mode (clearing the query / changing scope) restores the
+  // normal scope-based photo list.
+  const exitSearch = useCallback(() => {
+    setSearchQuery('')
+    setSearchByNameActive(false)
+    loadPhotos(selectedPerson || null, null, selectedFolder?.container_path || null)
+  }, [loadPhotos, selectedPerson, selectedFolder])
 
   // Remove an added folder and all photos indexed under it (local store)
   const handleRemoveFolder = async (folder: Folder) => {
@@ -300,6 +344,7 @@ export default function App() {
   // NOT a toggle — re-clicking the currently-selected person keeps the filter
   // (just closes the modal) instead of clearing the grid.
   const handleFaceClick = (personId: string) => {
+    if (searchByNameActive) exitSearch()
     if (selectedPerson !== personId) {
       setSelectedPerson(personId)
       setSelectedFolder(null)
@@ -321,7 +366,8 @@ export default function App() {
     setTrashSelected(false)
     setPhotos([])
     setPage('library')
-  }, [])
+    if (searchByNameActive) exitSearch()
+  }, [exitSearch, searchByNameActive])
 
   const handleReload = useCallback(() => {
     void ipc.app.reload()
@@ -407,18 +453,19 @@ export default function App() {
                 <input
                   type="text"
                   className="search-input"
-                  placeholder="Search your photos…"
+                  placeholder="Search by file name or person…"
                   value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value)
-                    const q = e.target.value.toLowerCase()
-                    if (q) {
-                      setPhotos(prev => prev.filter(p => p.path.toLowerCase().includes(q)))
-                    } else {
-                      loadPhotos(selectedPerson || null, null, selectedFolder?.container_path || null)
-                    }
-                  }}
+                  onChange={(e) => handleSearchQueryChange(e.target.value)}
                 />
+                {searchByNameActive && (
+                  <button
+                    className="search-clear-btn"
+                    onClick={() => exitSearch()}
+                    title="Clear search"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
                 <button
                   className="btn search-image-btn"
                   onClick={() => fileInputRef.current?.click()}
@@ -536,7 +583,6 @@ export default function App() {
           selectedPerson={selectedPerson}
           personName={persons.find(p => p.person_id === selectedPhoto.person_id)?.name}
           onFaceClick={handleFaceClick}
-          persons={persons}
           onPersonChanged={() => { loadPersons(); loadFolders(); loadTrashCount() }}
         />
       )}

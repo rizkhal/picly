@@ -316,6 +316,17 @@ export const local = {
     return api.local.searchPhoto(filePath)
   },
 
+  async searchPhotosByName(query: string): Promise<any[]> {
+    const api = bridge()
+    if (!api?.local?.searchPhotosByName) return []
+    try {
+      return (await api.local.searchPhotosByName(query)) || []
+    } catch (e) {
+      console.error('searchPhotosByName failed', e)
+      return []
+    }
+  },
+
   async stats(): Promise<unknown | null> {
     const api = bridge()
     if (!api?.local?.stats) return null
