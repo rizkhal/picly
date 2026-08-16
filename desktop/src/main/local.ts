@@ -248,6 +248,16 @@ export function cleanupStats(services: LocalServices): unknown {
   return services.store.cleanupStats()
 }
 
+/** Per-folder breakdown (counts + size + availability) for manage photos. */
+export function folderBreakdown(services: LocalServices): unknown[] {
+  return services.store.folderBreakdown()
+}
+
+/** Library-wide disk usage: photos on disk + thumb/crop cache dir size. */
+export function libraryStorage(services: LocalServices): { photoBytes: number; thumbBytes: number } {
+  return services.store.libraryStorage(services.config.thumbDir)
+}
+
 /** Hard-delete faces with no person (irreversible). */
 export function removeUnassignedFaces(services: LocalServices): number {
   return services.store.removeUnassignedFaces()

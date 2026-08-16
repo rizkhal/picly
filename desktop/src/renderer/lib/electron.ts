@@ -393,6 +393,28 @@ export const local = {
     }
   },
 
+  async folderBreakdown(): Promise<any[]> {
+    const api = bridge()
+    if (!api?.local?.folderBreakdown) return []
+    try {
+      return (await api.local.folderBreakdown()) || []
+    } catch (e) {
+      console.error('folderBreakdown failed', e)
+      return []
+    }
+  },
+
+  async libraryStorage(): Promise<{ photoBytes: number; thumbBytes: number } | null> {
+    const api = bridge()
+    if (!api?.local?.libraryStorage) return null
+    try {
+      return (await api.local.libraryStorage()) || null
+    } catch (e) {
+      console.error('libraryStorage failed', e)
+      return null
+    }
+  },
+
   async stats(): Promise<unknown | null> {
     const api = bridge()
     if (!api?.local?.stats) return null

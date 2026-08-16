@@ -261,6 +261,9 @@ function registerLocalIpc() {
   ipcMain.handle('local:cleanup-duplicates', () => require('../../dist-main/local.js').listDuplicateGroups(getLocalServices()));
   ipcMain.handle('local:cleanup-empty-persons', () => require('../../dist-main/local.js').removeEmptyPersons(getLocalServices()));
   ipcMain.handle('local:cleanup-orphan-thumbs', () => require('../../dist-main/local.js').removeOrphanThumbs(getLocalServices()));
+  // Manage-photos library overview
+  ipcMain.handle('local:folder-breakdown', () => require('../../dist-main/local.js').folderBreakdown(getLocalServices()));
+  ipcMain.handle('local:library-storage', () => require('../../dist-main/local.js').libraryStorage(getLocalServices()));
 
   ipcMain.handle('local:scan-folder', (e, folderPath) => {
     const win = BrowserWindow.fromWebContents(e.sender);

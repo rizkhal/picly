@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
-import { readdirSync, unlinkSync } from 'node:fs'
+import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import path from 'node:path'
 import { SCHEMA } from './schema'
 import { migrate } from './migrate'
@@ -186,6 +186,92 @@ export class PhotoStore {
          GROUP BY f.id ORDER BY f.added_at DESC`,
       )
       .all() as Array<{ folderId: string; hostPath: string; name: string; lastScannedAt: string | null; photoCount: number }>
+  }
+
+  /**
+   * Per-folder breakdown for the manage-photos page: photo/face/person counts
+   * plus disk usage. Availability is a filesystem check (folder may be on a
+   * volume that is currently unmounted).
+   */
+  folderBreakdown(): Array<{
+    folderId: string
+    hostPath: string
+    name: string
+    lastScannedAt: string | null
+    photoCount: number
+    faceCount: number
+    personCount: number
+    sizeBytes: number
+    available: boolean
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT f.id AS folderId, f.host_path AS hostPath, f.name, f.last_scanned_at AS lastScannedAt,
+                COUNT(p.id) AS photoCount,
+                COUNT(DISTINCT face.id) AS faceCount,
+                COUNT(DISTINCT face.person_id) AS personCount
+         FROM folders f
+         LEFT JOIN photos p ON p.path LIKE f.host_path || '/%' AND p.deleted_at IS NULL
+         LEFT JOIN faces face ON face.photo_id = p.id
+         GROUP BY f.id ORDER BY f.added_at DESC`,
+      )
+      .all() as Array<{
+      folderId: string
+      hostPath: string
+      name: string
+      lastScannedAt: string | null
+      photoCount: number
+      faceCount: number
+      personCount: number
+    }>
+
+    // Disk usage + availability (filesystem, not DB)
+    return rows.map((r) => {
+      const exists = existsSync(r.hostPath)
+      let sizeBytes = 0
+      if (exists) {
+        const photos = this.db
+          .prepare(`SELECT path FROM photos WHERE path LIKE ? AND deleted_at IS NULL`)
+          .all(`${r.hostPath}/%`) as Array<{ path: string }>
+        for (const p of photos) {
+          try {
+            sizeBytes += statSync(p.path).size
+          } catch {
+            /* file gone — not counted */
+          }
+        }
+      }
+      return { ...r, sizeBytes, available: exists }
+    })
+  }
+
+  /** Total bytes of indexed photos (on disk) + the thumb/crop cache dir. */
+  libraryStorage(thumbDir: string | null): { photoBytes: number; thumbBytes: number } {
+    const photoRows = this.db.prepare(`SELECT path FROM photos WHERE deleted_at IS NULL`).all() as Array<{ path: string }>
+    let photoBytes = 0
+    for (const p of photoRows) {
+      try {
+        photoBytes += statSync(p.path).size
+      } catch {
+        /* file gone — not counted */
+      }
+    }
+    let thumbBytes = 0
+    if (thumbDir) {
+      try {
+        for (const name of readdirSync(thumbDir)) {
+          const fp = path.join(thumbDir, name)
+          try {
+            thumbBytes += statSync(fp).size
+          } catch {
+            /* ignore */
+          }
+        }
+      } catch {
+        /* thumbDir missing — nothing to count */
+      }
+    }
+    return { photoBytes, thumbBytes }
   }
 
   markFolderScanned(hostPath: string): void {
