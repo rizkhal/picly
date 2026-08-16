@@ -326,7 +326,7 @@ const AvatarCropEditor = forwardRef<AvatarCropHandle, { src: string }>(function 
       setCenter((c) => clampCenter(c, newPx / (contain.ratio * newZoom) / 2))
     } else {
       const scale = contain.ratio * d.origZoom
-      setCenter((c) => clampCenter({ x: d.origCenter.x - dx / scale, y: d.origCenter.y - dy / scale }, d.origSquarePx / (contain.ratio * d.origZoom) / 2))
+      setCenter((_c) => clampCenter({ x: d.origCenter.x - dx / scale, y: d.origCenter.y - dy / scale }, d.origSquarePx / (contain.ratio * d.origZoom) / 2))
     }
   }
 
