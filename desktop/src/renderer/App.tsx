@@ -39,10 +39,9 @@ export default function App() {
     }, 300)
   }, [loadPersons, loadFolders, loadTrashCount, loadPhotos, scopeRef])
   const scans = useScans(refreshAfterScan)
-  const {
-    activeScans, dismissedScans, scanning, scanFolder,
-    pauseScan, resumeScan, removeScan, dismissScan, recoverScans, rescanFolder,
-  } = scans
+    const { activeScans, dismissedScans, scanning, scanFolder, startScanFromDroppedFiles,
+      pauseScan, resumeScan, removeScan, dismissScan, recoverScans, rescanFolder,
+    } = scans
 
   // Auth + update banner
   const auth = useAuth()
@@ -94,12 +93,15 @@ export default function App() {
     try { localStorage.setItem(SETTINGS_SECTION_KEY, settingsSection) } catch { /* ignore */ }
   }, [settingsSection])
 
-  // Scan progress is a full page — auto-open it when the USER starts a scan
-  // (add folder / re-scan). No auto-close: the page stays where the user left
-  // it (including across resume, where the paused row briefly disappears before
-  // the resumed row arrives), and is closed via the × button.
-  const handleAddFolder = useCallback(async () => {
+  // Scan progress is a full page. "Add folder" from the sidebar now only
+  // NAVIGATES there — the file picker opens from the page's own Add folder
+  // button, so the user lands on the queue page first (no surprise dialog).
+  const handleAddFolder = useCallback(() => {
     setPage('progress')
+  }, [])
+
+  // From the Scan progress page: open the folder picker + start scanning.
+  const handleStartScan = useCallback(async () => {
     await scanFolder()
   }, [scanFolder])
 
@@ -128,6 +130,20 @@ export default function App() {
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [loadFolders, loadTrashCount, recoverScans])
+
+  // Global drag & drop guard: without a window-level dragover/drop preventDefault,
+  // Electron may navigate the window to the dropped folder (or swallow the drop).
+  // Dropping anywhere outside the progress page just routes there (its empty state
+  // is the drop zone).
+  useEffect(() => {
+    const prevent = (e: DragEvent) => { e.preventDefault() }
+    window.addEventListener('dragover', prevent)
+    window.addEventListener('drop', prevent)
+    return () => {
+      window.removeEventListener('dragover', prevent)
+      window.removeEventListener('drop', prevent)
+    }
+  }, [])
 
   // Handle person selection
   const handlePersonClick = (personId: string) => {
@@ -415,7 +431,8 @@ export default function App() {
             onResume={resumeScan}
             onRemove={removeScan}
             onDismiss={dismissScan}
-            onAddFolder={handleAddFolder}
+            onAddFolder={handleStartScan}
+            onDropFolders={startScanFromDroppedFiles}
             onClose={() => setPage('library')}
           />
         ) : page === 'settings' ? (
@@ -478,7 +495,7 @@ export default function App() {
               <button
                 className={`toolbar-icon-btn scan-queue-btn${scanning ? ' active' : ''}`}
                 onClick={() => setPage('progress')}
-                title={scanning ? 'Scan in progress — view progress' : 'Scan progress'}
+                title={scanning ? 'Upload in progress — view progress' : 'Upload folder'}
               >
                 {scanning ? <span className="btn-spinner" /> : <Queue size={18} />}
               </button>

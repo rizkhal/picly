@@ -83,6 +83,19 @@ export function useScans(onRefresh: () => void) {
     await startScanFor([hostPath], 'rescan')
   }, [startScanFor])
 
+  // Folder upload via drag & drop: resolve the dropped File to its real path,
+  // keep only real directories, then scan them. Files (not folders) are rejected.
+  const startScanFromDroppedFiles = useCallback(async (files: File[]) => {
+    const dirs: string[] = []
+    for (const file of files) {
+      const p = ipc.getPathForFile(file)
+      if (p && (await ipc.local.isDirectory(p))) dirs.push(p)
+    }
+    if (dirs.length === 0) return false
+    await startScanFor(dirs)
+    return true
+  }, [startScanFor])
+
   // Pause a running scan — cancel main's scan, persist the state so a reload
   // restores it with Resume/Delete actions. Photos already scanned stay indexed.
   const pauseScan = useCallback(async (scanId: string) => {
@@ -202,6 +215,7 @@ export function useScans(onRefresh: () => void) {
     startScanFor,
     scanFolder,
     rescanFolder,
+    startScanFromDroppedFiles,
     pauseScan,
     resumeScan,
     removeScan,

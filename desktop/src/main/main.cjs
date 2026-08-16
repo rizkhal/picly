@@ -243,6 +243,16 @@ function registerLocalIpc() {
   );
   ipcMain.handle('local:delete-folder', (_e, hostPath) => getLocalServices().store.deleteFolder(hostPath));
 
+  // Validate that a dropped path is a real directory (drag & drop folder upload).
+  ipcMain.handle('local:is-dir', (_e, p) => {
+    try {
+      if (typeof p !== 'string' || !p) return false;
+      return fs.statSync(p).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+
   ipcMain.handle('local:search-photo', async (_e, photoPath) => {
     return require('../../dist-main/local.js').searchPhoto(getLocalServices(), photoPath);
   });

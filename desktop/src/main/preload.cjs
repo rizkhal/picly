@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('electron', {
     cleanupOrphanThumbs: () => ipcRenderer.invoke('local:cleanup-orphan-thumbs'),
     folderBreakdown: () => ipcRenderer.invoke('local:folder-breakdown'),
     libraryStorage: () => ipcRenderer.invoke('local:library-storage'),
+    isDirectory: (p) => ipcRenderer.invoke('local:is-dir', p),
     scanFolder: (folderPath) => ipcRenderer.invoke('local:scan-folder', folderPath),
     rescanFolder: (folderPath) => ipcRenderer.invoke('local:rescan-folder', folderPath),
     cancelScan: (scanId) => ipcRenderer.invoke('local:scan-cancel', scanId),

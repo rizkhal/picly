@@ -338,6 +338,9 @@ html, body, #root {
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 12px;
   border: none;
   border-radius: 6px;
@@ -745,6 +748,57 @@ html, body, #root {
 .queue-empty svg {
   color: var(--text-muted);
   opacity: 0.6;
+}
+
+/* Empty state doubles as the folder drop zone (click = picker, drop = upload) */
+.queue-empty.drop-zone {
+  min-height: 260px;
+  border: 1.5px dashed var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  background: transparent;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.queue-empty.drop-zone:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.queue-empty.drop-zone.dragging {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.queue-empty.drop-zone svg {
+  width: 32px;
+  height: 32px;
+  opacity: 0.9;
+  color: var(--text-muted);
+}
+
+.queue-empty.drop-zone.dragging svg {
+  color: var(--accent);
+}
+
+.drop-zone-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.drop-zone-sub {
+  font-size: 13px;
+}
+
+.drop-zone-scanning {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.queue-empty.drop-zone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .settings-row {

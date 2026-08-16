@@ -147,6 +147,18 @@ export const local = {
     }
   },
 
+  /** True when the dropped path is a real directory (folder upload via drag & drop). */
+  async isDirectory(path: string): Promise<boolean> {
+    const api = bridge()
+    if (!api?.local?.isDirectory) return false
+    try {
+      return (await api.local.isDirectory(path)) === true
+    } catch (e) {
+      console.error('isDirectory failed', path, e)
+      return false
+    }
+  },
+
   async cancelScan(scanId: string): Promise<void> {
     const api = bridge()
     if (!api?.local?.cancelScan) return
