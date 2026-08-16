@@ -47,7 +47,7 @@ function ScanRow({
           {isRunning && scan.current_file ? (
             <span title={scan.current_file}>{scan.current_file.split('/').pop()}</span>
           ) : isQueued ? (
-            <span>Waiting for a previous upload to finish…</span>
+            <span>Waiting for a previous scan to finish…</span>
           ) : isPaused ? (
             <span className="scan-paused-line">Paused — Resume to continue from where it stopped</span>
           ) : isDone ? (
@@ -59,7 +59,7 @@ function ScanRow({
           ) : isCancelled ? (
             <span className="scan-cancelled-line">Stopped at {processed} of {total} files</span>
           ) : isError ? (
-            <span className="scan-error-line">Upload failed{scan.errors ? ` (${scan.errors} errors)` : ''}</span>
+            <span className="scan-error-line">Scan failed{scan.errors ? ` (${scan.errors} errors)` : ''}</span>
           ) : null}
         </div>
         {!isDone && !isError && !isCancelled && (
@@ -70,16 +70,16 @@ function ScanRow({
       </div>
       <div className="queue-row-actions">
         {(isQueued || isRunning) && (
-          <button className="scan-pause-btn" title="Pause upload" onClick={() => onPause(scan.scan_id)}>
+          <button className="scan-pause-btn" title="Pause scan" onClick={() => onPause(scan.scan_id)}>
             <Pause size={14} weight="bold" />
           </button>
         )}
         {isPaused && (
           <>
-            <button className="scan-resume-btn" title="Resume upload" onClick={() => onResume(scan.scan_id)}>
+            <button className="scan-resume-btn" title="Resume scan" onClick={() => onResume(scan.scan_id)}>
               <Play size={14} weight="bold" />
             </button>
-            <button className="scan-delete-btn" title="Delete upload" onClick={() => onRemove(scan.scan_id)}>
+            <button className="scan-delete-btn" title="Delete scan" onClick={() => onRemove(scan.scan_id)}>
               <Trash size={14} weight="bold" />
             </button>
           </>
@@ -95,8 +95,8 @@ function ScanRow({
 }
 
 /**
- * Upload folder — full-page view of all folder uploads (active, paused, finished).
- * No modal: this page is the single place for upload progress + resume/remove.
+ * Scan photos — full-page view of all folder scans (active, paused, finished).
+ * No modal: this page is the single place for scan progress + resume/remove.
  * The empty state doubles as a drop zone: click to pick a folder or drag & drop one.
  */
 export function ScanProgressPage({ scans, scanning, onPause, onResume, onRemove, onDismiss, onAddFolder, onDropFolders, onClose }: ScanProgressPageProps) {
@@ -121,7 +121,7 @@ export function ScanProgressPage({ scans, scanning, onPause, onResume, onRemove,
     <div className="settings-page manage-page scan-queue-page">
       <div className="settings-header">
         <div className="settings-title">
-          Upload folder
+          Scan photos
           {activeCount > 0 && <span className="queue-header-count">{activeCount} running</span>}
         </div>
         <div className="settings-header-actions">
@@ -150,7 +150,7 @@ export function ScanProgressPage({ scans, scanning, onPause, onResume, onRemove,
               <Folder size={32} weight="duotone" />
               <p className="drop-zone-title">No photos yet</p>
               <p className="drop-zone-sub">Click to choose a folder, or drag & drop one here</p>
-              {scanning && <p className="drop-zone-scanning">Upload in progress…</p>}
+              {scanning && <p className="drop-zone-scanning">Scan in progress…</p>}
             </div>
           ) : (
             <div className="queue-list">

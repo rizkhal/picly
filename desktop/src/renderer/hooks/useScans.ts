@@ -83,7 +83,7 @@ export function useScans(onRefresh: () => void) {
     await startScanFor([hostPath], 'rescan')
   }, [startScanFor])
 
-  // Folder upload via drag & drop: resolve the dropped File to its real path,
+  // Folder scan via drag & drop: resolve the dropped File to its real path,
   // keep only real directories, then scan them. Files (not folders) are rejected.
   const startScanFromDroppedFiles = useCallback(async (files: File[]) => {
     const dirs: string[] = []

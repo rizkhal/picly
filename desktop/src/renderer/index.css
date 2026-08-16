@@ -750,7 +750,7 @@ html, body, #root {
   opacity: 0.6;
 }
 
-/* Empty state doubles as the folder drop zone (click = picker, drop = upload) */
+/* Empty state doubles as the folder drop zone (click = picker, drop = scan) */
 .queue-empty.drop-zone {
   min-height: 260px;
   border: 1.5px dashed var(--border);

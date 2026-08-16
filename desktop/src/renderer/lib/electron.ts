@@ -147,7 +147,7 @@ export const local = {
     }
   },
 
-  /** True when the dropped path is a real directory (folder upload via drag & drop). */
+  /** True when the dropped path is a real directory (folder scan via drag & drop). */
   async isDirectory(path: string): Promise<boolean> {
     const api = bridge()
     if (!api?.local?.isDirectory) return false

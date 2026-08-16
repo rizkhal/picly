@@ -495,7 +495,7 @@ export default function App() {
               <button
                 className={`toolbar-icon-btn scan-queue-btn${scanning ? ' active' : ''}`}
                 onClick={() => setPage('progress')}
-                title={scanning ? 'Upload in progress — view progress' : 'Upload folder'}
+                title={scanning ? 'Scan in progress — view progress' : 'Scan photos'}
               >
                 {scanning ? <span className="btn-spinner" /> : <Queue size={18} />}
               </button>
