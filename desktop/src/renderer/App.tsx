@@ -13,6 +13,7 @@ import { SettingsPage, type SettingsSectionId } from './components/SettingsPage'
 import { ManagePhotosPage } from './components/ManagePhotosPage'
 import { PersonManager } from './components/PersonManager'
 import { ScanProgressPage } from './components/ScanProgressPage'
+import { Spinner } from './components/Spinner'
 
 // Main-panel pages. Persisted so a reload stays on the same page the user left.
 type PageId = 'library' | 'settings' | 'manage' | 'progress'
@@ -497,7 +498,7 @@ export default function App() {
                 onClick={() => setPage('progress')}
                 title={scanning ? 'Scan in progress — view progress' : 'Scan photos'}
               >
-                {scanning ? <span className="btn-spinner" /> : <Queue size={18} />}
+                {scanning ? <Spinner /> : <Queue size={18} />}
               </button>
               {/* Reload — restart the renderer (page state persists via localStorage) */}
               <button

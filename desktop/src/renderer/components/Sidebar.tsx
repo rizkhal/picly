@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Folder, Trash, GearSix, Aperture, ArrowClockwise, Plus } from '@phosphor-icons/react'
 import type { Folder as FolderT, PersonPreview } from '../types'
+import { Spinner } from './Spinner'
 
 type SidebarProps = {
   scanError: string | null
@@ -76,7 +77,7 @@ export function Sidebar(props: SidebarProps) {
                   disabled={scanning}
                   title={scanning ? 'Scanning in progress…' : 'Folder options'}
                 >
-                  {scanning ? <span className="btn-spinner" /> : <Plus size={14} weight="bold" />}
+                  {scanning ? <Spinner /> : <Plus size={14} weight="bold" />}
                 </button>
                 {menuOpen && (
                   <div className="sidebar-title-dropdown">

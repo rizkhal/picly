@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { Folder, Plus, Trash, Pause, Play, X } from '@phosphor-icons/react'
 import type { ScanProgress } from '../types'
+import { Spinner } from './Spinner'
 
 type ScanProgressPageProps = {
   scans: ScanProgress[]
@@ -36,6 +37,14 @@ function ScanRow({
   const isError = scan.status === 'error'
   const isCancelled = scan.status === 'cancelled'
 
+  // Per-file stage badge shown while running.
+  const stage = scan.stage
+  const stageLabel =
+    stage === 'decoding' ? 'Reading file…' :
+    stage === 'detecting' ? 'Detecting faces…' :
+    stage === 'processing' ? 'Processing faces…' :
+    null
+
   return (
     <div className={`queue-row ${isPaused ? 'paused' : ''} ${isDone ? 'done' : ''} ${isError ? 'error' : ''}`}>
       <div className="queue-row-main">
@@ -45,7 +54,15 @@ function ScanRow({
         </div>
         <div className="queue-row-sub">
           {isRunning && scan.current_file ? (
-            <span title={scan.current_file}>{scan.current_file.split('/').pop()}</span>
+            <span className="scan-current-line" title={scan.current_file}>
+              {scan.current_file.split('/').pop()}
+              {stageLabel && (
+                <span className={`scan-stage-badge stage-${stage}`}>
+                  <Spinner size={10} className="stage-spinner" />
+                  {stageLabel}
+                </span>
+              )}
+            </span>
           ) : isQueued ? (
             <span>Waiting for a previous scan to finish…</span>
           ) : isPaused ? (
@@ -126,7 +143,7 @@ export function ScanProgressPage({ scans, scanning, onPause, onResume, onRemove,
         </div>
         <div className="settings-header-actions">
           <button className="btn" onClick={onAddFolder} disabled={scanning}>
-            {scanning ? <span className="btn-spinner" /> : <Plus size={14} />} Add folder
+            {scanning ? <Spinner /> : <Plus size={14} />} Add folder
           </button>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
