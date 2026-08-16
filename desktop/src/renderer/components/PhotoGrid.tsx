@@ -66,10 +66,12 @@ export function PhotoGrid({ photos, onOpenPhoto }: PhotoGridProps) {
  * (explicit target picked in a modal — never implicitly the filtered person).
  * Low-quality crops are blurred so low-res/out-of-focus faces don't dominate.
  */
-function DetailFaceRow({ face, onEdited, onLink }: {
+function DetailFaceRow({ face, onEdited, onLink, onHover, hovered }: {
   face: ModalFace
   onEdited: () => void
   onLink: (face: ModalFace) => void
+  onHover: (faceId: string | null) => void
+  hovered: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState('')
@@ -105,7 +107,11 @@ function DetailFaceRow({ face, onEdited, onLink }: {
   const pct = face.qualityScore != null ? Math.round(face.qualityScore * 100) : null
 
   return (
-    <div className="detail-face">
+    <div
+      className={`detail-face${hovered ? ' hovered' : ''}`}
+      onMouseEnter={() => onHover(face.faceId)}
+      onMouseLeave={() => onHover(null)}
+    >
       <div className={`detail-face-img-wrap${low ? ' blur' : ''}`}>
         <img className="detail-face-img" src={`picly://face/${face.faceId}.jpg`} alt="" loading="lazy" />
       </div>
@@ -299,6 +305,9 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null)
   // Face being linked to a person (opens the AssignFaceModal).
   const [linkFace, setLinkFace] = useState<ModalFace | null>(null)
+  // Face currently hovered in the right detail panel — highlights its box on
+  // the preview image so the user can see which rectangle is which.
+  const [hoverFaceId, setHoverFaceId] = useState<string | null>(null)
   // True when the ORIGINAL source file is missing (deleted / unmounted volume).
   // The preview then falls back to the thumbnail cache so the user still sees
   // something, plus a notice explains why full-res is unavailable.
@@ -419,6 +428,11 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
     await refreshFaces()
   }
 
+  // Hover handlers shared by every detail row — highlight the matching box on
+  // the image. Unassigned faces are NOT in the panel list, so hovering one is
+  // impossible; keep it simple with a single id.
+  const rowHover = (faceId: string | null) => setHoverFaceId(faceId)
+
   return (
     <div className="modal-overlay">
       <div className="modal modal-photo">
@@ -468,7 +482,7 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                     {faceBoxes.map((f) => (
                       <div
                         key={f.faceId}
-                        className={`face-box${f.personId === selectedPerson ? ' active' : ''}${!f.personId ? ' unassigned' : ''}`}
+                        className={`face-box${f.personId === selectedPerson ? ' active' : ''}${!f.personId ? ' unassigned' : ''}${f.faceId === hoverFaceId ? ' highlight' : ''}`}
                         style={{
                           left: `${f.left}%`,
                           top: `${f.top}%`,
@@ -517,6 +531,8 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                         face={f}
                         onEdited={refreshFaces}
                         onLink={setLinkFace}
+                        onHover={rowHover}
+                        hovered={hoverFaceId === f.faceId}
                       />
                     ))}
                   </>
@@ -531,6 +547,8 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                       face={f}
                       onEdited={refreshFaces}
                       onLink={setLinkFace}
+                      onHover={rowHover}
+                      hovered={hoverFaceId === f.faceId}
                     />
                   ))
                 )}
@@ -544,6 +562,8 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                         face={f}
                         onEdited={refreshFaces}
                         onLink={setLinkFace}
+                        onHover={rowHover}
+                        hovered={hoverFaceId === f.faceId}
                       />
                     ))}
                   </>

@@ -1759,6 +1759,23 @@ html, body, #root {
   box-shadow: none;
 }
 
+/* Face highlighted from the right detail panel (hover a face row) — brightens
+   the matching rectangle so you can see which face is which. */
+.face-box.highlight {
+  border-color: #facc15 !important;
+  border-width: 2.5px;
+  background: rgba(250, 204, 21, 0.15);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 14px rgba(250, 204, 21, 0.6);
+  z-index: 3;
+}
+
+/* Row in the detail panel currently hovered — subtle lift so the mapping to
+   the highlighted box on the image is obvious. */
+.detail-face.hovered {
+  border-color: #facc15;
+  background: var(--surface-2);
+}
+
 /* FacesBar: manage-people button (merge/split dialog) */
 .faces-bar-manage {
   display: inline-flex;
