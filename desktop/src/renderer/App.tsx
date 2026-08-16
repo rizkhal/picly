@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { MagnifyingGlass, Camera, Queue, ArrowClockwise, X } from '@phosphor-icons/react'
+import { MagnifyingGlass, Camera, ArrowClockwise, X } from '@phosphor-icons/react'
 import type { Folder, Photo } from './types'
 import { useLibrary } from './hooks/useLibrary'
 import { useScans } from './hooks/useScans'
@@ -13,7 +13,6 @@ import { SettingsPage, type SettingsSectionId } from './components/SettingsPage'
 import { ManagePhotosPage } from './components/ManagePhotosPage'
 import { PersonManager } from './components/PersonManager'
 import { ScanProgressPage } from './components/ScanProgressPage'
-import { Spinner } from './components/Spinner'
 
 // Main-panel pages. Persisted so a reload stays on the same page the user left.
 type PageId = 'library' | 'settings' | 'manage' | 'progress'
@@ -492,14 +491,6 @@ export default function App() {
                   <Camera size={18} />
                 </button>
               </div>
-              {/* Scan progress — outside the search box, far right of the toolbar */}
-              <button
-                className={`toolbar-icon-btn scan-queue-btn${scanning ? ' active' : ''}`}
-                onClick={() => setPage('progress')}
-                title={scanning ? 'Scan in progress — view progress' : 'Scan photos'}
-              >
-                {scanning ? <Spinner /> : <Queue size={18} />}
-              </button>
               {/* Reload — restart the renderer (page state persists via localStorage) */}
               <button
                 className="toolbar-icon-btn"
