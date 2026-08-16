@@ -29,7 +29,7 @@ export function ManagePhotosPage({ onClose }: ManagePhotosPageProps) {
     <div className="settings-page manage-page">
       <div className="settings-header">
         <div className="settings-title">Manage photos</div>
-        <button className="btn" onClick={onClose}>← Back</button>
+        <button className="modal-close" onClick={onClose} title="Close">×</button>
       </div>
 
       <div className="settings-body">
