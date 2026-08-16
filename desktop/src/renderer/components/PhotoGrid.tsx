@@ -90,7 +90,7 @@ function DetailFaceRow({ face, onEdited }: {
 
   const unassign = async () => {
     if (!face.personId) return
-    if (!confirm(`Lepas wajah ini dari "${face.personName}"?`)) return
+    if (!confirm(`Remove this face from "${face.personName}"?`)) return
     await ipc.local.setFacePerson(face.faceId, null)
     onEdited()
   }
@@ -117,8 +117,8 @@ function DetailFaceRow({ face, onEdited }: {
             onBlur={save}
           />
         ) : (
-          <div className="detail-face-name" title={face.personName || 'Belum di-assign'}>
-            {face.personName || 'Belum di-assign'}
+          <div className="detail-face-name" title={face.personName || 'Unassigned'}>
+            {face.personName || 'Unassigned'}
           </div>
         )}
         <div className="detail-face-sub">
@@ -132,7 +132,7 @@ function DetailFaceRow({ face, onEdited }: {
           </button>
         )}
         {face.personId && !editing && (
-          <button className="detail-icon-btn danger" title="Lepas wajah dari person" onClick={unassign}>
+          <button className="detail-icon-btn danger" title="Remove face from person" onClick={unassign}>
             <LinkBreak size={13} />
           </button>
         )}
@@ -186,6 +186,13 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
   const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null)
   const [assignFace, setAssignFace] = useState<ModalFace | null>(null)
   const [assignSearch, setAssignSearch] = useState('')
+  // True when the ORIGINAL source file is missing (deleted / unmounted volume).
+  // The preview then falls back to the thumbnail cache so the user still sees
+  // something, plus a notice explains why full-res is unavailable.
+  const [srcMissing, setSrcMissing] = useState(false)
+  useEffect(() => {
+    setSrcMissing(false)
+  }, [photo.photo_id])
 
   const loadFaces = async () => {
     const rows = await ipc.local.photoFaces(photo.photo_id)
@@ -310,7 +317,7 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
             <span className="modal-title-name" title={photo.path}>{base(photo.path)}</span>
             <span className="modal-title-count">{index + 1} / {photos.length}{personName ? ` · ${personName}` : ''}</span>
           </div>
-          <button className="modal-close" onClick={onClose} title="Tutup (Esc)">×</button>
+          <button className="modal-close" onClick={onClose} title="Close (Esc)">×</button>
         </div>
 
         <div className="modal-body">
@@ -339,9 +346,10 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                     <img
                       ref={imgRef}
                       className="modal-image"
-                      src={`picly://src/${photo.photo_id}.jpg`}
+                      src={srcMissing ? `picly://thumb/${photo.photo_id}.jpg` : `picly://src/${photo.photo_id}.jpg`}
                       alt=""
                       draggable={false}
+                      onError={() => setSrcMissing(true)}
                       onLoad={(e) => {
                         const im = e.currentTarget
                         setImgSize({ w: im.naturalWidth, h: im.naturalHeight })
@@ -357,7 +365,7 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                           width: `${f.width}%`,
                           height: `${f.height}%`,
                         }}
-                        title={f.personName || 'Klik untuk assign ke person'}
+                        title={f.personName || 'Click to assign to a person'}
                         onClick={(e) => {
                           e.stopPropagation()
                           if (f.personId) onFaceClick(f.personId)
@@ -371,6 +379,12 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                   </div>
                 </div>
               </div>
+              {srcMissing && (
+                <div className="photo-src-missing">
+                  <strong>Original file not found</strong>
+                  <span>This photo's source file is missing (deleted or on an unmounted drive). Showing cached preview.</span>
+                </div>
+              )}
               {zoom.s > 1 && (
                 <button className="photo-zoom-badge" onClick={resetZoom} title="Reset zoom (double-click)">
                   {Math.round(zoom.s * 100)}%
@@ -383,7 +397,7 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
               <div className="detail-panel-header">
                 <div className="detail-photo-name" title={photo.path}>{base(photo.path)}</div>
                 <div className="detail-photo-meta">
-                  {dims ? `${dims.w}×${dims.h}px` : ''}{dims ? ' · ' : ''}{faces.length} wajah
+                  {dims ? `${dims.w}×${dims.h}px` : ''}{dims ? ' · ' : ''}{faces.length} faces
                 </div>
               </div>
               <div className="detail-face-list">
@@ -399,9 +413,9 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                     ))}
                   </>
                 )}
-                <div className="detail-section-title">Semua wajah di foto ({faces.filter((f) => f.personId !== null && f.personId !== selectedPerson).length})</div>
+                <div className="detail-section-title">All faces in photo ({faces.filter((f) => f.personId !== null && f.personId !== selectedPerson).length})</div>
                 {faces.filter((f) => f.personId !== null && f.personId !== selectedPerson).length === 0 ? (
-                  <div className="detail-empty">Tidak ada wajah lain di foto ini.</div>
+                  <div className="detail-empty">No other faces in this photo.</div>
                 ) : (
                   faces.filter((f) => f.personId !== null && f.personId !== selectedPerson).map((f) => (
                     <DetailFaceRow
@@ -416,11 +430,11 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
               {/* Assign picker — shown when an unassigned face box is clicked */}
               {assignFace && (
                 <div className="detail-picker detail-picker-anchored">
-                  <div className="detail-picker-header">Assign wajah ke person…</div>
+                  <div className="detail-picker-header">Assign face to person…</div>
                   <input
                     className="detail-picker-search"
                     autoFocus
-                    placeholder="Cari person… (Esc untuk tutup)"
+                    placeholder="Search persons… (Esc to close)"
                     value={assignSearch}
                     onChange={(e) => setAssignSearch(e.target.value)}
                     onKeyDown={(e) => {
@@ -432,7 +446,7 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                       const s = assignSearch.trim().toLowerCase()
                       return !s || p.name.toLowerCase().includes(s)
                     }).length === 0 && (
-                      <div className="detail-picker-empty">Tidak ada person yang cocok.</div>
+                      <div className="detail-picker-empty">No matching persons.</div>
                     )}
                     {persons
                       .filter((p) => {
@@ -447,7 +461,7 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
                       .map((p) => (
                         <button key={p.person_id} className="detail-picker-item" onClick={() => assignFaceTo(p.person_id)}>
                           <span className="detail-picker-name">{p.name}</span>
-                          <span className="detail-picker-count">{p.photo_count} foto</span>
+                          <span className="detail-picker-count">{p.photo_count} photos</span>
                         </button>
                       ))}
                   </div>
@@ -461,8 +475,8 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
             <div className="photo-rail-title">
               <span>Photos in scope</span>
               <div className="photo-rail-nav">
-                <button onClick={() => onNavigate(index - 1)} disabled={index <= 0} title="Sebelumnya (←)">‹</button>
-                <button onClick={() => onNavigate(index + 1)} disabled={index >= photos.length - 1} title="Berikutnya (→)">›</button>
+                <button onClick={() => onNavigate(index - 1)} disabled={index <= 0} title="Previous (←)">‹</button>
+                <button onClick={() => onNavigate(index + 1)} disabled={index >= photos.length - 1} title="Next (→)">›</button>
               </div>
             </div>
             <div className="photo-rail-grid">
@@ -481,8 +495,8 @@ export function PhotoModal({ photo, photos, index, onNavigate, onClose, onOpenLo
         </div>
 
         <div className="modal-actions">
-          <button className="btn" onClick={() => onOpenLocation(photo.path)}>Buka lokasi</button>
-          <button className="btn btn-danger" onClick={onDeletePhoto}>Pindah ke Trash</button>
+          <button className="btn" onClick={() => onOpenLocation(photo.path)}>Open location</button>
+          <button className="btn btn-danger" onClick={onDeletePhoto}>Move to Trash</button>
         </div>
       </div>
     </div>

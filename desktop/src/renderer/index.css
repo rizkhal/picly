@@ -323,6 +323,14 @@ html, body, #root {
   height: 32px;
   line-height: 1;
   flex-shrink: 0;
+  /* Clickable → home */
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.logo:hover {
+  border-color: var(--accent);
 }
 
 .logo-icon {
@@ -1617,15 +1625,43 @@ html, body, #root {
   background: rgba(0, 0, 0, 0.85);
 }
 
+/* Notice shown when the original source file is missing — the preview falls
+   back to the cached thumbnail, so explain why it's not full-res. */
+.photo-src-missing {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  margin: 0 auto;
+  padding: 8px 14px;
+  max-width: 420px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+  backdrop-filter: blur(4px);
+}
+
+.photo-src-missing strong {
+  color: #fbbf24;
+  font-size: 12px;
+}
+
+.photo-src-missing span {
+  color: var(--text-muted);
+}
+
 /* The stage contains the image (fit scale applied via the .photo-frame
    transform); .face-box uses RAW image coordinates so it must NOT inherit the
    modal contain rule. */
 
 /* Face rectangle overlay — color-coded by state:
-   - .active (person yang lagi difilter)  = orange terang
-   - default (person lain di foto)        = biru (accent)
-   - .unassigned (belum punya person)     = abu-abu putus-putus
-   Semua clickable (klik = filter ke person-nya). */
+   - .active (currently filtered person) = bright orange
+   - default (other person in the photo) = blue (accent)
+   - .unassigned (no person yet)         = dashed gray
+   All clickable (click = filter to that person). */
 .face-box {
   position: absolute;
   border: 2px solid rgba(59, 130, 246, 0.55);
@@ -1642,7 +1678,7 @@ html, body, #root {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 10px rgba(59, 130, 246, 0.4);
 }
 
-/* Selected person (aktif di filter wajah) — orange, menonjol */
+/* Selected person (active in the face filter) — orange, prominent */
 .face-box.active {
   border-color: #fb923c;
   background: rgba(249, 115, 22, 0.1);
@@ -2034,7 +2070,7 @@ html, body, #root {
   color: #fff;
 }
 
-/* Delete a paused scan row (foto tetap tersimpan, cuma status dihapus) */
+/* Delete a paused scan row (photos stay indexed, only the status is removed) */
 .scan-delete-btn {
   display: inline-flex;
   align-items: center;

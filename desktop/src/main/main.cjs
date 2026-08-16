@@ -122,6 +122,7 @@ app.whenReady().then(() => {
         if (!photo || !photo.path || !fs.existsSync(photo.path)) return new Response('not found', { status: 404 });
         return net.fetch(pathToFileURL(photo.path).toString());
       }
+
       return new Response('not found', { status: 404 });
     } catch {
       return new Response('bad request', { status: 400 });
@@ -315,6 +316,20 @@ function registerAppIpc() {
       return true;
     } catch (e) {
       console.error('showItemInFolder failed:', e);
+      return false;
+    }
+  });
+
+  // Reload the renderer (keeps the main process / local services / DB alive).
+  // The persisted page (picly:page) puts the user back where they were.
+  ipcMain.handle('app:reload', (event) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win) return false;
+      win.reload();
+      return true;
+    } catch (e) {
+      console.error('app:reload failed:', e);
       return false;
     }
   });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { MagnifyingGlass, Camera, Queue } from '@phosphor-icons/react'
+import { MagnifyingGlass, Camera, Queue, ArrowClockwise } from '@phosphor-icons/react'
 import type { Folder, Photo } from './types'
 import { useLibrary } from './hooks/useLibrary'
 import { useScans } from './hooks/useScans'
@@ -29,7 +29,7 @@ export default function App() {
     loadFolders, loadPersons, loadPhotos, loadTrashPhotos, loadTrashCount, searchFace,
   } = library
 
-  // Scan engine: 3-state (pause/resume/hapus) + progress subscription
+  // Scan engine: 3-state (pause/resume/remove) + progress subscription
   const refreshAfterScan = useCallback(() => {
     loadPersons()
     loadFolders()
@@ -130,6 +130,7 @@ export default function App() {
 
   // Handle person selection
   const handlePersonClick = (personId: string) => {
+    setPage('library')
     if (selectedPerson === personId) {
       setSelectedPerson(null)
       setSelectedFolder(null)
@@ -145,6 +146,7 @@ export default function App() {
 
   // Handle folder selection — photos are scoped to this folder only
   const handleFolderClick = (folder: Folder) => {
+    setPage('library')
     if (selectedFolder?.folder_id === folder.folder_id) {
       setSelectedFolder(null)
       setSelectedPerson(null)
@@ -160,6 +162,7 @@ export default function App() {
 
   // Handle "Trash" selection — soft-deleted photos (restore / empty trash)
   const handleTrashClick = () => {
+    setPage('library')
     if (trashSelected) {
       setTrashSelected(false)
       setSelectedFolder(null)
@@ -188,7 +191,7 @@ export default function App() {
       setTrashSelected(false)
     } catch (err) {
       console.error('Search failed', err)
-      setScanError('Search gagal — coba lagi.')
+      setScanError('Search failed — try again.')
     } finally {
       setLoading(false)
     }
@@ -209,7 +212,7 @@ export default function App() {
       await ipc.local.deleteFolder(folder.host_path)
     } catch (e) {
       console.error('Failed to remove folder', e)
-      setScanError('Gagal menghapus folder.')
+      setScanError('Failed to remove folder.')
       return
     }
     if (selectedFolder?.folder_id === folder.folder_id) {
@@ -259,7 +262,7 @@ export default function App() {
 
   // Permanently delete all trashed photos
   const handleEmptyTrash = async () => {
-    if (!confirm('Hapus permanen semua foto di Trash?')) return
+    if (!confirm('Permanently delete all photos in Trash?')) return
     try {
       await ipc.local.emptyTrash()
     } catch (e) {
@@ -310,6 +313,19 @@ export default function App() {
   const handleManagePhotos = () => {
     setPage('manage')
   }
+
+  // Logo click — back to the library, clearing the active scope
+  const handleLogoClick = useCallback(() => {
+    setSelectedPerson(null)
+    setSelectedFolder(null)
+    setTrashSelected(false)
+    setPhotos([])
+    setPage('library')
+  }, [])
+
+  const handleReload = useCallback(() => {
+    void ipc.app.reload()
+  }, [])
   const handleNavigate = (index: number) => {
     if (index < 0 || index >= photos.length) return
     setPhotoIndex(index)
@@ -335,6 +351,7 @@ export default function App() {
         personCount={persons.length}
         authEmail={authStatus.loggedIn ? authStatus.email : null}
         onOpenSettings={() => setPage('settings')}
+        onLogoClick={handleLogoClick}
         onRestorePhoto={handleRestorePhoto}
         onEmptyTrash={handleEmptyTrash}
       />
@@ -414,9 +431,17 @@ export default function App() {
               <button
                 className={`toolbar-icon-btn scan-queue-btn${scanning ? ' active' : ''}`}
                 onClick={() => setPage('progress')}
-                title={scanning ? 'Scan sedang berjalan — lihat progress' : 'Scan progress'}
+                title={scanning ? 'Scan in progress — view progress' : 'Scan progress'}
               >
                 {scanning ? <span className="btn-spinner" /> : <Queue size={18} />}
+              </button>
+              {/* Reload — restart the renderer (page state persists via localStorage) */}
+              <button
+                className="toolbar-icon-btn"
+                onClick={handleReload}
+                title="Reload app"
+              >
+                <ArrowClockwise size={18} />
               </button>
             </div>
 
@@ -437,7 +462,7 @@ export default function App() {
               ) : trashSelected ? (
                 <div className="trash-view">
                   <div className="trash-toolbar">
-                    <div className="trash-title">Trash — {photos.length} foto dihapus</div>
+                    <div className="trash-title">Trash — {photos.length} photos deleted</div>
                     {photos.length > 0 && (
                       <button className="btn btn-danger" onClick={handleEmptyTrash}>
                         Empty Trash
@@ -446,8 +471,8 @@ export default function App() {
                   </div>
                   {photos.length === 0 ? (
                     <div className="empty">
-                      <h3>Trash kosong</h3>
-                      <p>Foto yang dihapus muncul di sini sampai di-restore atau dihapus permanen.</p>
+                      <h3>Trash is empty</h3>
+                      <p>Deleted photos appear here until restored or permanently deleted.</p>
                     </div>
                   ) : (
                     <div className="trash-grid">
@@ -457,7 +482,7 @@ export default function App() {
                           <button
                             className="btn trash-restore-btn"
                             onClick={() => handleRestorePhoto(p.photo_id)}
-                            title="Kembalikan ke library"
+                            title="Restore to library"
                           >
                             Restore
                           </button>
@@ -517,8 +542,7 @@ export default function App() {
       )}
 
       {/* Person manager — manual merge/split (survives re-cluster). NOTE: UI
-          entry point dihapus sementara atas permintaan user — re-enable ketika
-          diminta lagi. */}
+          entry point removed temporarily at user request — re-enable when asked again. */}
       {false && personManagerOpen && (
         <PersonManager
           persons={persons}

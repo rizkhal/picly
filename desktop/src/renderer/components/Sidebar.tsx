@@ -18,6 +18,7 @@ type SidebarProps = {
   driveStatus: string
   personCount: number
   onOpenSettings: () => void
+  onLogoClick?: () => void
   authEmail?: string | null
   onRestorePhoto: (photoId: string) => void
   onEmptyTrash: () => void
@@ -29,7 +30,7 @@ export function Sidebar(props: SidebarProps) {
     folders, selectedFolder, onFolderClick, onRemoveFolder,
     onRescanFolder, scanning, onAddFolder, onManagePhotos,
     trashCount, trashSelected, onTrashClick,
-    driveStatus, personCount, onOpenSettings, authEmail,
+    driveStatus, personCount, onOpenSettings, authEmail, onLogoClick,
   } = props
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -44,10 +45,14 @@ export function Sidebar(props: SidebarProps) {
   return (
     <div className="sidebar">
       <div className="sidebar-header">
-        <div className="logo">
+        <button
+          className="logo"
+          onClick={onLogoClick}
+          title="Home"
+        >
           <Aperture size={18} weight="fill" className="logo-icon" />
           <span>Picly</span>
-        </div>
+        </button>
       </div>
 
       {scanError && (
@@ -69,7 +74,7 @@ export function Sidebar(props: SidebarProps) {
                   className="icon-btn"
                   onClick={() => setMenuOpen((v) => !v)}
                   disabled={scanning}
-                  title={scanning ? 'Scanning sedang berjalan…' : 'Folder options'}
+                  title={scanning ? 'Scanning in progress…' : 'Folder options'}
                 >
                   {scanning ? <span className="btn-spinner" /> : <Plus size={14} weight="bold" />}
                 </button>
@@ -111,7 +116,7 @@ export function Sidebar(props: SidebarProps) {
                 <div className="row-actions">
                   <button
                     className="row-action-btn rescan-btn"
-                    title="Re-scan folder (tambah baru, hapus yang hilang)"
+                    title="Re-scan folder (add new, remove missing)"
                     onClick={(e) => { e.stopPropagation(); onRescanFolder(folder) }}
                   >
                     <ArrowClockwise size={13} />
@@ -136,7 +141,7 @@ export function Sidebar(props: SidebarProps) {
           <div
             className={`nav-item trash-item ${trashSelected ? 'active' : ''}`}
             onClick={onTrashClick}
-            title="Foto yang dipindah ke Trash (soft-delete, bisa di-restore)"
+            title="Photos moved to Trash (soft-delete, can be restored)"
           >
             <Trash size={16} className="nav-icon" />
             <div className="disk-info">

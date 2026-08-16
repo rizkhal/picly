@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('electron', {
   localModels: () => ipcRenderer.invoke('app:local-models'),
   // Reveal the original file in the system file manager (Finder/Explorer)
   showItem: (filePath) => ipcRenderer.invoke('app:show-item', filePath),
+  // Reload the renderer (page state persists via localStorage)
+  reload: () => ipcRenderer.invoke('app:reload'),
 
   // Auth (account/entitlement — tokens stay in main via safeStorage)
   auth: {

@@ -350,18 +350,18 @@ export const auth = {
   },
   async login(email: string, password: string): Promise<{ ok: boolean; email?: string; error?: string }> {
     const api = bridge()
-    if (!api?.auth?.login) return { ok: false, error: 'Auth tidak tersedia' }
+    if (!api?.auth?.login) return { ok: false, error: 'Auth is unavailable' }
     try {
-      return (await api.auth.login(email, password)) || { ok: false, error: 'Gagal. Coba lagi.' }
+      return (await api.auth.login(email, password)) || { ok: false, error: 'Failed. Try again.' }
     } catch (e: any) {
       return { ok: false, error: e?.message || String(e) }
     }
   },
   async register(email: string, password: string): Promise<{ ok: boolean; email?: string; error?: string }> {
     const api = bridge()
-    if (!api?.auth?.register) return { ok: false, error: 'Auth tidak tersedia' }
+    if (!api?.auth?.register) return { ok: false, error: 'Auth is unavailable' }
     try {
-      return (await api.auth.register(email, password)) || { ok: false, error: 'Gagal. Coba lagi.' }
+      return (await api.auth.register(email, password)) || { ok: false, error: 'Failed. Try again.' }
     } catch (e: any) {
       return { ok: false, error: e?.message || String(e) }
     }
@@ -398,7 +398,7 @@ export const update = {
       const res = await api.checkUpdate()
       // Network failure / backend down -> surface a clear, non-blocking error
       if (!res || typeof res.available !== 'boolean') {
-        return { available: false, error: res?.error || 'Gagal menghubungi server' }
+        return { available: false, error: res?.error || 'Failed to reach the server' }
       }
       return res
     } catch (e) {
@@ -448,6 +448,20 @@ export const shell = {
       await api.showItem(filePath)
     } catch (e) {
       console.error('Failed to open location', e)
+    }
+  },
+}
+
+/** App-level utilities (reload renderer, etc.) */
+export const app = {
+  async reload(): Promise<boolean> {
+    const api = bridge()
+    if (!api?.reload) return false
+    try {
+      return !!(await api.reload())
+    } catch (e) {
+      console.error('reload failed', e)
+      return false
     }
   },
 }
