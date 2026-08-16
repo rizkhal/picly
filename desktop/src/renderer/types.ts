@@ -39,6 +39,8 @@ export type ScanProgress = {
   current_file?: string | null
   started_at?: number
   finished_at?: number | null
+  /** Per-file stage while scanning: decoding -> detecting -> processing -> done. */
+  stage?: 'decoding' | 'detecting' | 'processing' | 'done'
 }
 
 export type PersonPreview = { person_id: string; name: string; photo_count: number; face_id?: string }

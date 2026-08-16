@@ -192,6 +192,7 @@ export function useScans(onRefresh: () => void) {
         errors: p.errors ?? 0,
         status: p.status || 'running',
         current_file: p.currentFile ?? p.current_file ?? null,
+        stage: p.stage as ScanProgress['stage'] | undefined,
       }
       setActiveScans((prev) => {
         const byId = new Map(prev.map((s) => [s.scan_id, s]))

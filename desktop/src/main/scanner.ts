@@ -27,6 +27,8 @@ export interface ScanProgress {
   errors: number
   status: 'queued' | 'running' | 'done' | 'cancelled' | 'error'
   currentFile: string | null
+  /** Per-file stage shown while scanning: decoding -> detecting -> processing -> done. */
+  stage?: 'decoding' | 'detecting' | 'processing' | 'done'
 }
 
 export interface ScanSummary {
@@ -145,6 +147,7 @@ export async function scanFolder(
     errors: 0,
     status: 'running',
     currentFile: null,
+    stage: undefined,
   }
   const emit = () => options.onProgress?.({ ...progress })
 
@@ -164,6 +167,7 @@ export async function scanFolder(
     if (checkCancel()) break
     progress.processed += 1
     progress.currentFile = filePath
+    progress.stage = 'decoding'
     emit()
     if (isAppleDouble(path.basename(filePath))) continue // macOS sidecar, not an image
     try {
@@ -172,6 +176,9 @@ export async function scanFolder(
       if (store.hasPhotoHash(hash)) continue
       if (store.hasPhotoPath(filePath)) continue
       if (checkCancel()) break // stop before the expensive detect
+
+      progress.stage = 'detecting'
+      emit()
 
       // Read metadata once (cheap, used for thumb/crop bounds).
       let width: number | null = null
@@ -192,6 +199,9 @@ export async function scanFolder(
       const kept = minQ > 0 ? faces.filter((f) => f.qualityScore >= minQ) : faces
       if (kept.length === 0) continue
       if (checkCancel()) break // stop before writing thumb/crops
+
+      progress.stage = 'processing'
+      emit()
 
       const photoId = randomUUID()
       const thumbPath = path.join(options.thumbDir, `${photoId}.jpg`)
@@ -228,6 +238,7 @@ export async function scanFolder(
       progress.scanned += 1
       progress.totalFaces += kept.length
       progress.persons = personCount
+      progress.stage = 'done'
       emit()
     } catch (e) {
       console.error(`scan error [${filePath}]:`, e)
