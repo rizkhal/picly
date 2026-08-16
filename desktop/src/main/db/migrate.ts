@@ -12,7 +12,7 @@ import type Database from 'better-sqlite3'
  * Add a new entry to MIGRATIONS whenever the schema changes in a way that
  * needs to transform an existing database. Never edit an applied migration.
  */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 function addColumnIfMissing(
   db: Database.Database,
@@ -51,6 +51,15 @@ export const MIGRATIONS: Array<{ version: number; apply: (db: Database.Database)
         person_id TEXT PRIMARY KEY REFERENCES persons(id) ON DELETE CASCADE,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )`)
+    },
+  },
+  {
+    // v3 — person avatars. Adds avatar_path to persons (user-uploaded avatar,
+    // e.g. person-<id>.jpg in the thumb dir). NULL = fall back to the first
+    // face crop in the UI.
+    version: 3,
+    apply(db) {
+      addColumnIfMissing(db, 'persons', 'avatar_path', `TEXT`)
     },
   },
 ]

@@ -506,6 +506,7 @@ export default function App() {
                 persons={personPreviews.length > 0 ? personPreviews : persons.map((p) => ({ ...p, photo_count: p.photo_count }))}
                 selectedPerson={selectedPerson}
                 onPersonClick={handlePersonClick}
+                onAvatarSaved={loadPersons}
               />
             )}
 

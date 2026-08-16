@@ -43,7 +43,7 @@ export type ScanProgress = {
   stage?: 'decoding' | 'detecting' | 'processing' | 'done'
 }
 
-export type PersonPreview = { person_id: string; name: string; photo_count: number; face_id?: string }
+export type PersonPreview = { person_id: string; name: string; photo_count: number; face_id?: string; avatar_url?: string | null }
 
 /** A photo that was moved to the Trash (soft-deleted) and can be restored. */
 export type TrashView = {

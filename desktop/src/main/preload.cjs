@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('electron', {
     countNoFacePhotos: () => ipcRenderer.invoke('local:count-no-face-photos'),
     photoFaces: (photoId) => ipcRenderer.invoke('local:photo-faces', photoId),
     renamePerson: (personId, name) => ipcRenderer.invoke('local:rename-person', personId, name),
+    setPersonAvatar: (personId, srcPath, crop) => ipcRenderer.invoke('local:set-person-avatar', personId, srcPath, crop || null),
     mergePersons: (targetId, sourceIds) => ipcRenderer.invoke('local:merge-persons', targetId, sourceIds),
     splitPerson: (personId) => ipcRenderer.invoke('local:split-person', personId),
     setFacePerson: (faceId, personId) => ipcRenderer.invoke('local:set-face-person', faceId, personId),

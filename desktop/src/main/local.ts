@@ -200,10 +200,68 @@ export function emptyTrash(services: LocalServices): number {
 
 /** Face crop previews for a set of persons, mapped to picly://face URLs. */
 export function listPersonPreviews(services: LocalServices, ids: string[]): unknown[] {
-  return services.store.listPersonPreviews(ids).map((p) => ({
-    ...p,
-    faceUrl: p.faceId ? `picly://face/${p.faceId}.jpg` : null,
-  }))
+  return services.store.listPersonPreviews(ids).map((p) => {
+    const avatarUrl = p.avatarPath
+      ? `picly://avatar/${path.basename(p.avatarPath)}${p.avatarUpdatedAt ? `?v=${encodeURIComponent(p.avatarUpdatedAt)}` : ''}`
+      : null
+    return {
+      ...p,
+      faceUrl: p.faceId ? `picly://face/${p.faceId}.jpg` : null,
+      avatarUrl,
+    }
+  })
+}
+
+/**
+ * Save a user-uploaded avatar for a person. The source is re-encoded to a
+ * square JPEG in the thumb dir (person-<id>.jpg) and the DB row is updated;
+ * the previous avatar file (if any) is unlinked. Pass null to remove the
+ * avatar and fall back to the face-crop preview.
+ *
+ * src is a local file path. When crop ({x, y, size} in natural image
+ * coordinates, square) is provided the avatar is cropped from that region with
+ * sharp — otherwise the whole image is center-cropped to a square.
+ */
+export async function setPersonAvatar(
+  services: LocalServices,
+  personId: string,
+  src: string | null,
+  crop?: { x: number; y: number; size: number } | null,
+): Promise<boolean> {
+  const fs = await import('node:fs')
+  const sharp = (await import('sharp')).default
+  const destName = `person-${personId}.jpg`
+  const destPath = path.join(services.config.thumbDir, destName)
+  if (src && crop && crop.size >= 8) {
+    // autoOrient: the browser <img> applies EXIF rotation (phone photos), so
+    // the crop box the user drew is in ORIENTED coordinates. sharp reads the
+    // raw file un-oriented — rotate first so both spaces match, then clamp the
+    // crop against the oriented dimensions.
+    const base = sharp(src, { failOn: 'none' }).autoOrient()
+    const meta = await base.clone().metadata()
+    const iw = meta.width ?? 0
+    const ih = meta.height ?? 0
+    const size = Math.min(crop.size, iw, ih)
+    const x = Math.max(0, Math.min(crop.x, iw - size))
+    const y = Math.max(0, Math.min(crop.y, ih - size))
+    await base
+      .extract({ left: x, top: y, width: size, height: size })
+      .resize(256, 256, { fit: 'cover', position: 'centre' })
+      .jpeg({ quality: 88 })
+      .toFile(destPath)
+  } else if (src) {
+    await sharp(src, { failOn: 'none' })
+      .resize(256, 256, { fit: 'cover', position: 'centre' })
+      .jpeg({ quality: 88 })
+      .toFile(destPath)
+  } else if (fs.existsSync(destPath)) {
+    fs.unlinkSync(destPath)
+  }
+  const prev = services.store.setPersonAvatar(personId, src ? destName : null)
+  if (prev && prev !== destName && fs.existsSync(path.join(services.config.thumbDir, prev))) {
+    fs.unlinkSync(path.join(services.config.thumbDir, prev))
+  }
+  return true
 }
 
 /** Faces (bbox + person) for one photo, for the detail-view overlay. */

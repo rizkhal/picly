@@ -52,12 +52,12 @@ export const local = {
     }
   },
 
-  async listPersonPreviews(ids: string[]): Promise<Array<{ person_id: string; face_id?: string }>> {
+  async listPersonPreviews(ids: string[]): Promise<Array<{ person_id: string; face_id?: string; avatar_url?: string | null }>> {
     const api = bridge()
     if (!api?.local?.listPersonPreviews || ids.length === 0) return []
     try {
       const rows = await api.local.listPersonPreviews(ids)
-      return (rows || []).map((f: any) => ({ person_id: f.personId || f.person_id, face_id: f.faceId || f.face_id || undefined }))
+      return (rows || []).map((f: any) => ({ person_id: f.personId || f.person_id, face_id: f.faceId || f.face_id || undefined, avatar_url: f.avatarUrl || f.avatar_url || null }))
     } catch (e) {
       console.error('Failed to load person previews', e)
       return []
@@ -187,6 +187,18 @@ export const local = {
       await api.local.renamePerson(personId, newName)
     } catch (e) {
       console.error('renamePerson failed', personId, e)
+    }
+  },
+
+  async setPersonAvatar(personId: string, srcPath: string | null, crop?: { x: number; y: number; size: number }): Promise<boolean> {
+    const api = bridge()
+    if (!api?.local?.setPersonAvatar) return false
+    try {
+      const ok = await api.local.setPersonAvatar(personId, srcPath, crop || null)
+      return !!ok
+    } catch (e) {
+      console.error('setPersonAvatar failed', personId, e)
+      return false
     }
   },
 

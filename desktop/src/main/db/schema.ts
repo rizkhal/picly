@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS persons (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL DEFAULT 'Person',
     centroid BLOB,                     -- 512 float32, running average of member embeddings
+    avatar_path TEXT,                  -- user-uploaded avatar (person-<id>.jpg in thumbDir)
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

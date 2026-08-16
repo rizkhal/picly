@@ -98,7 +98,7 @@ app.whenReady().then(() => {
   //   picly://thumb/<photoId>.jpg  — full-photo thumbnail
   //   picly://face/<faceId>.jpg    — cropped face preview
   //   picly://src/<photoId>.jpg    — the ORIGINAL source image (full resolution)
-  protocol.handle('picly', (req) => {
+  protocol.handle('picly', async (req) => {
     try {
       const url = new URL(req.url);
       const host = url.hostname; // 'thumb' | 'face' | 'src'
@@ -111,6 +111,23 @@ app.whenReady().then(() => {
         const file = path.join(getLocalServices().config.thumbDir, name);
         if (!fs.existsSync(file)) return new Response('not found', { status: 404 });
         return net.fetch(pathToFileURL(file).toString());
+      }
+      if (host === 'avatar') {
+        // person-<uuid>.jpg — same thumb dir, validated against traversal.
+        // Query string (?v=...) is stripped by URL parsing, so it never reaches
+        // the regex; it exists purely as a cache-buster for avatar updates.
+        if (!/^person-[0-9a-f-]{36}\.jpg$/.test(name)) {
+          return new Response('bad request', { status: 400 });
+        }
+        const file = path.join(getLocalServices().config.thumbDir, name);
+        if (!fs.existsSync(file)) return new Response('not found', { status: 404 });
+        const resp = await net.fetch(pathToFileURL(file).toString());
+        // Avatar files are rewritten in place on update — never let the
+        // renderer cache them, or a second update looks like a no-op.
+        return new Response(resp.body, {
+          status: resp.status,
+          headers: { 'Cache-Control': 'no-store' },
+        });
       }
       if (host === 'src') {
         // Only UUIDs + .jpg — resolves the stored original photo path (no traversal)
@@ -223,6 +240,11 @@ function registerLocalIpc() {
   ipcMain.handle('local:rename-person', (_e, personId, name) => {
     getLocalServices().store.renamePerson(personId, name);
     return true;
+  });
+  ipcMain.handle('local:set-person-avatar', async (_e, personId, srcPath, crop) => {
+    if (typeof personId !== 'string' || !/^[0-9a-f-]{36}$/.test(personId)) return false;
+    const local = getLocalServices();
+    return require('../../dist-main/local.js').setPersonAvatar(local, personId, typeof srcPath === 'string' ? srcPath : null, crop || null);
   });
   // Manual person editing — merge/split/single-face assign. These record
   // person_manual so a startup re-cluster never un-does the user's edits.

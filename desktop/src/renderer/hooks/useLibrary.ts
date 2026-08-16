@@ -32,10 +32,10 @@ export function useLibrary() {
     const previews: PersonPreview[] = []
     const ids = livePersons.map((p) => p.person_id)
     const faceRows = await ipc.local.listPersonPreviews(ids)
-    const byId = new Map<string, { face_id?: string }>(faceRows.map((f) => [f.person_id, f]))
+    const byId = new Map<string, { face_id?: string; avatar_url?: string | null }>(faceRows.map((f) => [f.person_id, f]))
     for (const p of livePersons) {
       const face = byId.get(p.person_id)
-      previews.push({ ...p, face_id: face?.face_id || undefined })
+      previews.push({ ...p, face_id: face?.face_id || undefined, avatar_url: face?.avatar_url ?? null })
     }
     setPersonPreviews(previews)
   }, [showSingletons])

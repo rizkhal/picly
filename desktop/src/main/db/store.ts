@@ -540,7 +540,7 @@ export class PhotoStore {
    * Uses the MEDIAN rowid face (middle of the cluster's insertion order) so the
    * preview isn't a random early crop — it's a stable, central sample.
    */
-  listPersonPreviews(ids: string[]): Array<{ personId: string; faceId: string; photoPath: string | null }> {
+  listPersonPreviews(ids: string[]): Array<{ personId: string; faceId: string; photoPath: string | null; avatarPath: string | null; avatarUpdatedAt: string | null }> {
     if (ids.length === 0) return []
     const placeholders = ids.map(() => '?').join(',')
     // Pick the median-rowid face per person: rank faces by rowid, take the one
@@ -552,13 +552,14 @@ export class PhotoStore {
                   COUNT(*) OVER (PARTITION BY person_id) AS cnt
            FROM faces
          )
-         SELECT pr.id AS personId, r.id AS faceId, p.path AS photoPath
+         SELECT pr.id AS personId, r.id AS faceId, p.path AS photoPath, pr.avatar_path AS avatarPath,
+                pr.updated_at AS avatarUpdatedAt
          FROM persons pr
-         JOIN ranked r ON r.person_id = pr.id AND r.rn = (r.cnt + 1) / 2
-         JOIN photos p ON p.id = r.photo_id AND p.deleted_at IS NULL
+         LEFT JOIN ranked r ON r.person_id = pr.id AND r.rn = (r.cnt + 1) / 2
+         LEFT JOIN photos p ON p.id = r.photo_id AND p.deleted_at IS NULL
          WHERE pr.id IN (${placeholders})`,
       )
-      .all(...ids) as Array<{ personId: string; faceId: string; photoPath: string | null }>
+      .all(...ids) as Array<{ personId: string; faceId: string; photoPath: string | null; avatarPath: string | null; avatarUpdatedAt: string | null }>
   }
 
   // ------------------------------------------- faces + clustering (offline HAC)
@@ -905,6 +906,23 @@ export class PhotoStore {
 
   renamePerson(personId: string, name: string): void {
     this.db.prepare(`UPDATE persons SET name = ?, updated_at = datetime('now') WHERE id = ?`).run(name, personId)
+  }
+
+  /**
+   * Store the user-uploaded avatar for a person (avatar_path is a filename
+   * like person-<id>.jpg, resolved against thumbDir by the caller/protocol).
+   * Returns the previous avatar filename (if any) so the caller can unlink it.
+   */
+  setPersonAvatar(personId: string, avatarPath: string | null): string | null {
+    const row = this.db
+      .prepare(`SELECT avatar_path FROM persons WHERE id = ?`)
+      .get(personId) as { avatar_path: string | null } | undefined
+    if (!row) return null
+    // updated_at doubles as the avatar cache-buster (?v=), so use a value that
+    // changes even on rapid successive updates — datetime('now') has 1s
+    // resolution and would collide when two updates happen within a second.
+    this.db.prepare(`UPDATE persons SET avatar_path = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?`).run(avatarPath, personId)
+    return row.avatar_path
   }
 
   deletePerson(personId: string): void {
