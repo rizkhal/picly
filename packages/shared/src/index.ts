@@ -3,7 +3,14 @@
 // ============================================================================
 
 // Config
-export { MODEL_CONFIG, CLUSTERING_CONFIG, DB_CONFIG, CACHE_CONFIG, APP_CONFIG } from './config';
+export {
+  MODEL_CONFIG,
+  QUALITY_CONFIG,
+  CLUSTERING_CONFIG,
+  DB_CONFIG,
+  CACHE_CONFIG,
+  APP_CONFIG,
+} from './config';
 
 // Types
 export type {

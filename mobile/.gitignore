@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+.expo-shared/
+
+# Build outputs
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# SQLite databases (local dev)
+*.db
+*.sqlite
+*.db-journal
+*.sqlite-wal
+
+# ONNX models (large binaries)
+models/*.onnx
+models/*.param
+models/*.bin
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Expo emulators
+ios/
+android/
+*.ipa
+*.apk

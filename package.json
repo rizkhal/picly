@@ -1,0 +1,18 @@
+{
+  "name": "picly",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "mobile",
+    "packages/shared"
+  ],
+  "scripts": {
+    "install:all": "npm install",
+    "start:mobile": "npm run start --workspace=mobile",
+    "start:backend": "cd backend && bun run dev",
+    "start:web": "cd web && bun run dev",
+    "build:shared": "npm run build --workspace=packages/shared",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "clean:all": "rm -rf node_modules mobile/node_modules backend/node_modules packages/shared/node_modules web/node_modules desktop/node_modules"
+  }
+}

@@ -39,7 +39,48 @@
 - **Scanner**: local, hash dedup + thumbnails + centroid clustering (`desktop/src/main/scanner.ts`)
 - **Desktop**: Electron + React (see `desktop/`) — **100% local, works fully offline**
 - **Backend**: minimal **Hono** service (`backend/`) — **auth** (register/login) + **in-app update manifest** (`GET /app/update`)
-- **Mobile**: PWA (planned)
+- **Web**: static React+Vite landing page (`web/`)
+- **Mobile**: Expo React Native app (`mobile/`) — *early scaffold on branch `mobile-rn`* (ONNX Runtime Mobile, expo-sqlite)
+- **Shared**: `packages/shared` (`picly-shared`) — cross-platform config + types for desktop & mobile
+
+## Monorepo structure
+
+Picly is an npm workspaces monorepo. The root `package.json` declares the npm
+workspaces (`mobile`, `packages/shared`); `desktop/`, `web/` and `backend/` are
+tracked by git but keep their **own lockfiles (`bun.lock`)** so their toolchains
+(desktop: Electron + native rebuilds; web: Vite; backend: Hono) stay untouched
+by npm installs.
+
+```
+picly/
+├── desktop/          # Electron app (bun.lock) — ML pipeline, SQLite, scanner, UI
+├── mobile/           # Expo React Native app (npm) — ONNX Runtime Mobile (wip)
+├── web/              # Landing page (bun.lock) — React + Vite
+├── backend/          # Hono service (bun.lock) — auth + update manifest
+├── packages/
+│   └── shared/       # picly-shared — shared config + TS types (npm)
+└── package.json      # npm workspaces + root scripts (install:all, start:*, typecheck)
+```
+
+**Install / scripts:**
+
+```bash
+npm install             # root: links mobile + packages/shared
+npm run start:mobile    # Expo (mobile/)
+npm run build:shared    # build picly-shared → packages/shared/dist
+npm run typecheck       # runs each workspace's typecheck script
+```
+
+> `desktop/`, `web/` and `backend/` are **not** in the npm workspaces — they use
+`bun` with their own `bun.lock` (install with `cd desktop && bun install`, etc.).
+Only `mobile` + `packages/shared` are npm-managed from the root.
+
+**`picly-shared`** is the single source of truth for pipeline numbers used by both
+apps: model names, detection thresholds (SCRFD 0.5, NMS 0.3, re-detect 80px),
+quality-gate thresholds, clustering linkage (0.45 production default), and DB/cache
+config. Build it with `cd packages/shared && npm run build` (outputs CJS + types to
+`dist/`, gitignored); `mobile` consumes it via the workspace symlink. Keep these
+numbers in sync when the desktop pipeline changes.
 
 ## Run the desktop app (local, no backend needed)
 
@@ -177,11 +218,6 @@ cd desktop && bun run verify:pipeline   # IoU ~0.999, cosSim ~0.9999, umeyama M 
 
 ### Local storage + scanner
 
-`desktop/src/main/db/` is a local SQLite store (better-sqlite3) with
-folders/photos/faces/persons tables, embeddings as BLOB and
-JS typed-array cosine search; `desktop/src/main/scanner.ts` scans folders
-(hash dedup + thumbnails + centroid clustering at threshold 0.6, progress/cancel).
-The DB lives under `desktop/data/` (gitignored). Test harnesses:
 
 ```bash
 cd desktop
@@ -201,11 +237,7 @@ assignments identical on the parity set; the 1 remaining flip is a near-threshol
 
 ### Electron integration — fully local, no backend
 
-`desktop/src/main/main.cjs` wires local IPC handlers over the compiled services
-(`dist-main/local.js`, from `src/main/local.ts`): scan folder with live progress
-(streamed via IPC events, no polling), search by photo, list folders/persons/photos,
-rename/delete, and a `picly://thumb/` protocol handler that serves cached thumbnails
-to the renderer.
+
 
 The **renderer is 100% local** — every action (scan, search, browse, rename,
 delete, thumbnails) goes through the SQLite store + ONNX pipeline. **No Python
@@ -234,7 +266,7 @@ one binary.)
 ## Notes
 
 - Storage is fully local: SQLite under `desktop/data/` (gitignored) — thumbnails cached as 300px JPEG
-- Face clustering: centroid-based with running average (threshold 0.6), done at scan time
+- Face clustering: HAC average-linkage with cutoff `0.45` (see `CLUSTERING_CONFIG.mergeThreshold`); LOW-quality faces need `>= 0.6` to join a cluster
 - Drive handling is **desktop app responsibility**, not backend
 - Models: **dev** reads `~/.insightface/models/buffalo_l/` (override `PICLY_MODELS_DIR`);
   **packaged** apps ship them inside `Contents/Resources/models` — no manual setup needed
