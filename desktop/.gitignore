@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+.expo-shared/
+
+# Build outputs
+dist/
+dist-main/
+build/
+mobile/build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Models (large binaries - keep out of git)
+models/*.onnx
+models/*.param
+
+# SQLite databases (local dev)
+*.db
+*.sqlite
+
+# Electron
+Electron.app/
+
+# Crash reports
+*.crash
