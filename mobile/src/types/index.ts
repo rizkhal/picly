@@ -53,10 +53,7 @@ export interface Person {
   quality: QualityTier;
 }
 
-export interface ScanStage {
-  id: 'detecting' | 'quality' | 'embedding';
-  label: string;
-}
+export type ScanStage = 'decoding' | 'detecting' | 'quality' | 'embedding' | 'clustering';
 
 export interface Folder {
   id: string;

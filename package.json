@@ -4,7 +4,8 @@
   "private": true,
   "workspaces": [
     "mobile",
-    "packages/shared"
+    "packages/shared",
+    "packages/ml"
   ],
   "scripts": {
     "install:all": "npm install",

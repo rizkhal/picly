@@ -1,0 +1,45 @@
+{
+  "name": "picly-ml",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./runtime/react-native": {
+      "types": "./dist/runtime/react-native.d.ts",
+      "import": "./dist/runtime/react-native.js",
+      "require": "./dist/runtime/react-native.js",
+      "default": "./dist/runtime/react-native.js"
+    },
+    "./dist/desktop-models": {
+      "types": "./dist/desktop-models.d.ts",
+      "import": "./dist/desktop-models.js",
+      "require": "./dist/desktop-models.js",
+      "default": "./dist/desktop-models.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "onnxruntime-common": "^1.21.0"
+  },
+  "optionalDependencies": {
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^3.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  },
+  "files": [
+    "dist"
+  ]
+}

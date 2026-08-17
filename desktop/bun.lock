@@ -9,6 +9,7 @@
         "@phosphor-icons/react": "^2.1.10",
         "better-sqlite3": "11.10.0",
         "onnxruntime-node": "^1.27.0",
+        "picly-ml": "file:../packages/ml",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
         "sharp": "^0.35.3",
@@ -725,6 +726,8 @@
     "path-scurry": ["path-scurry@1.11.1", "", { "dependencies": { "lru-cache": "^10.2.0", "minipass": "^5.0.0 || ^6.0.2 || ^7.0.0" } }, "sha512-Xa4Nw17FS9ApQFJ9umLiJS4orGjm7ZzwUrwamcGQuHSzDyth9boKDaycYdDcZDuqYATXw4HFXgaqWTctW/v1HA=="],
 
     "pend": ["pend@1.2.0", "", {}, "sha512-F3asv42UuXchdzt+xXqfW1OGlVBe+mxa2mqI0pg5yAHZPvFmY3Y6drSf/GQ1A86WgWEN9Kzh/WrgKa6iGcHXLg=="],
+
+    "picly-ml": ["picly-ml@file:../packages/ml", { "dependencies": { "onnxruntime-common": "^1.21.0" }, "devDependencies": { "typescript": "^5.6.0" } }],
 
     "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
 

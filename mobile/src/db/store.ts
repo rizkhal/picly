@@ -4,6 +4,8 @@
 
 import type { Face, Person, Photo } from '../types';
 import { getDb } from './index';
+import { embeddingToBlob } from '../utils/vec';
+import type { PersonCluster } from './cluster';
 
 export interface PersonRow {
   id: string;
@@ -42,18 +44,52 @@ const PERSON_SELECT = `
   ORDER BY p.updated_at DESC
 `;
 
-/** All persons with aggregate counts. Skips persons whose faces are all low-quality. */
+/**
+ * All persons (full list — INCLUDING singletons/noise, matching desktop's
+ * `listPersons(includeNoise=true)` so a crowded group photo doesn't silently
+ * lose people). Skips persons whose faces are all low-quality.
+ */
 export async function listPersons(): Promise<Person[]> {
   const db = await getDb();
-  const rows = await db.getAllAsync<PersonRow>(PERSON_SELECT);
+  const rows = await db.getAllAsync<PersonRow>(
+    `SELECT p.id, p.name, p.centroid, p.avatar_path,
+            COUNT(DISTINCT f.id) AS face_count,
+            COUNT(DISTINCT f.photo_id) AS photo_count,
+            COALESCE(AVG(f.quality_score), 0) AS avg_quality
+     FROM persons p
+     LEFT JOIN faces f ON f.person_id = p.id
+     WHERE (f.id IS NULL OR f.low_quality = 0)
+     GROUP BY p.id
+     ORDER BY p.updated_at DESC`,
+  );
+  const avatars = await representativeAvatars();
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
-    avatarUri: r.avatar_path ?? '', // fallback: first face thumb (wired in later)
+    avatarUri: r.avatar_path ?? avatars.get(r.id) ?? '',
     faceCount: r.face_count,
     photoCount: r.photo_count,
     quality: tierFromScore(r.avg_quality),
   }));
+}
+
+/** Representative avatar uri per person (best-quality face crop row -> photo uri). */
+async function representativeAvatars(): Promise<Map<string, string>> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ person_id: string; uri: string }>(
+    `SELECT f.person_id, ph.uri AS uri
+     FROM faces f JOIN photos ph ON ph.id = f.photo_id
+     WHERE f.low_quality = 0
+     ORDER BY f.quality_score DESC`,
+  );
+  const seen = new Set<string>();
+  const out = new Map<string, string>();
+  for (const r of rows) {
+    if (!r.person_id || seen.has(r.person_id)) continue;
+    seen.add(r.person_id);
+    out.set(r.person_id, r.uri);
+  }
+  return out;
 }
 
 /** One person + their faces (with photo uris for thumbnails). */
@@ -70,17 +106,34 @@ export async function getPerson(personId: string): Promise<{ person: Person; fac
     personId,
   );
 
+  const avatarUri =
+    person.avatar_path ?? faceRows[0]?.id
+      ? representativeAvatar(db, personId)
+      : '';
+
   return {
     person: {
       id: person.id,
       name: person.name,
-      avatarUri: person.avatar_path ?? faceRows[0]?.id ? '' : '',
+      avatarUri: (await avatarUri) ?? person.avatar_path ?? '',
       faceCount: person.face_count,
       photoCount: person.photo_count,
       quality: tierFromScore(person.avg_quality),
     },
     faces: faceRows.map(rowToFace),
   };
+}
+
+/** Best-quality face row's photo uri for a person (fallback avatar). */
+async function representativeAvatar(db: Awaited<ReturnType<typeof getDb>>, personId: string): Promise<string> {
+  const row = await db.getFirstAsync<{ uri: string }>(
+    `SELECT ph.uri AS uri
+     FROM faces f JOIN photos ph ON ph.id = f.photo_id
+     WHERE f.person_id = ? AND f.low_quality = 0
+     ORDER BY f.quality_score DESC LIMIT 1`,
+    personId,
+  );
+  return row?.uri ?? '';
 }
 
 export interface PhotoRow {
@@ -129,12 +182,7 @@ export async function getPhoto(photoId: string): Promise<Photo | null> {
   );
   if (!row) return null;
 
-  const faces = await db.getAllAsync<FaceRow>(
-    `SELECT f.*, ph.uri AS photo_uri
-     FROM faces f JOIN photos ph ON ph.id = f.photo_id
-     WHERE f.photo_id = ? ORDER BY f.x1, f.y1`,
-    photoId,
-  );
+  const faces = await getFacesForPhoto(db, photoId);
 
   return {
     id: row.id,
@@ -143,9 +191,26 @@ export async function getPhoto(photoId: string): Promise<Photo | null> {
     width: row.width ?? 0,
     height: row.height ?? 0,
     createdAt: Date.parse(row.created_at) || Date.now(),
-    faces: faces.map(rowToFace),
+    faces,
     exists: true,
   };
+}
+
+interface FaceWithNameRow extends FaceRow {
+  person_name: string | null;
+}
+
+/** Faces of one photo, with person names resolved (for badges/labels). */
+async function getFacesForPhoto(db: Awaited<ReturnType<typeof getDb>>, photoId: string): Promise<Face[]> {
+  const rows = await db.getAllAsync<FaceWithNameRow>(
+    `SELECT f.*, ph.uri AS photo_uri, p.name AS person_name
+     FROM faces f
+     JOIN photos ph ON ph.id = f.photo_id
+     LEFT JOIN persons p ON p.id = f.person_id
+     WHERE f.photo_id = ? ORDER BY f.x1, f.y1`,
+    photoId,
+  );
+  return rows.map((r) => ({ ...rowToFace(r), name: r.person_name ?? null }));
 }
 
 /** All faces belonging to one person (with photo uri), for the People tab. */
@@ -228,6 +293,31 @@ export async function addPhotoWithFaces(photo: AddPhotoInput, faces: AddFaceInpu
         f.lowQuality ? 1 : 0,
         f.qualityScore,
       );
+    }
+  });
+}
+
+/**
+ * Persist the HAC clustering result: clear person links, recreate persons
+ * from the clusters, and assign each member face. Mirrors desktop
+ * clusterAllFaces (custom names are NOT preserved on mobile — the user has no
+ * rename flow yet, so every re-cluster renames Person N from scratch).
+ */
+export async function applyClusters(clusters: PersonCluster[]): Promise<void> {
+  const db = await getDb();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('UPDATE faces SET person_id = NULL');
+    await db.runAsync('DELETE FROM persons');
+    for (const cluster of clusters) {
+      await db.runAsync(
+        `INSERT INTO persons (id, name, centroid) VALUES (?, ?, ?)`,
+        cluster.id,
+        cluster.name,
+        embeddingToBlob(cluster.centroid),
+      );
+      for (const faceId of cluster.faceIds) {
+        await db.runAsync('UPDATE faces SET person_id = ? WHERE id = ?', cluster.id, faceId);
+      }
     }
   });
 }

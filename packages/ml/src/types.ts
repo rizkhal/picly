@@ -1,0 +1,52 @@
+/**
+ * Shared pipeline types — ported verbatim from desktop/src/main/ml/types.ts so
+ * desktop and mobile consume the exact same shapes.
+ */
+
+export interface RgbImage {
+  width: number
+  height: number
+  /** Row-major RGB, length width * height * 3. */
+  data: Uint8Array
+}
+
+/**
+ * Quality tier for a detected face. Detection, quality, recognition and
+ * clustering are separate stages: a tiny/low-quality face is still a valid
+ * detection (shown in UI) but should not drive recognition/clustering.
+ */
+export type FaceQuality = 'high' | 'medium' | 'low' | 'very_low'
+
+/**
+ * Pose/landmark geometry summary for a detection, computed from SCRFD kps.
+ * Used for pose-aware quality: strong-yaw / degenerate-landmark faces are weak
+ * identity evidence (can false-match a different person) and are downgraded.
+ */
+export interface FacePose {
+  /** Horizontal nose offset vs eye midpoint, normalized by eye distance (0 = frontal). */
+  yawRatio: number
+  /** Eye distance as fraction of min(bbox sides) — very small => suspect landmarks. */
+  eyeDistRatio: number
+}
+
+export interface DetectedFace {
+  /** [x1, y1, x2, y2] in original-image coordinates (float). */
+  bbox: [number, number, number, number]
+  detScore: number
+  /** 5 landmarks (raw from the detector, not refined), original-image coords. */
+  kps: number[][]
+  /**
+   * L2-normalized ArcFace embedding (512-d). NULL when the face is below the
+   * embedding threshold (very_low quality) and embedding was skipped — the
+   * face is still a valid detection for UI, but can't drive recognition.
+   */
+  embedding: Float32Array | null
+  /** Quality tier from the quality gate (size + score + landmarks). */
+  quality: FaceQuality
+  /** Pose/landmark geometry (yaw + eye span) for the quality gate. */
+  facePose: FacePose
+  /** Continuous quality score, 0..1 (see FaceAnalysis.qualityScore). */
+  qualityScore: number
+  /** true for very_low tier (below embedding threshold). */
+  lowQuality: boolean
+}

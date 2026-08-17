@@ -1,51 +1,52 @@
-import * as ort from 'onnxruntime-node'
-import type { ModelConfig } from './config'
-import { toNchwBlob } from './image'
-import type { RgbImage } from './types'
-
 /**
- * ArcFace recognition (w600k_r50) — exact port of insightface ArcFaceONNX.get_feat:
- * input is an RGB 112x112 crop, normalized (pixel - 127.5) / 127.5, NCHW float32.
- * Callers are responsible for L2-normalizing the output (normed_embedding).
+ * Desktop ArcFace embedder — provided by the shared `picly-ml` package.
+ * Wraps the runtime-agnostic embedder with the desktop (onnxruntime-node)
+ * backend so existing callers keep the same constructor signature.
  */
-export class ArcFaceEmbedder {
-  private session!: ort.InferenceSession
-  private config: ModelConfig
-  private inputName = ''
-  private outputName = ''
+import * as ort from 'onnxruntime-node'
+import { ArcFaceEmbedder as SharedArcFaceEmbedder } from 'picly-ml'
+import type { ModelConfig, RgbImage } from 'picly-ml'
 
-  private constructor(config: ModelConfig) {
-    this.config = config
+/** Desktop ArcFace embedder. `ArcFaceEmbedder.create(config)` loads via
+ * onnxruntime-node from the filesystem path in `config.arcModel`. */
+export class ArcFaceEmbedder {
+  private inner: SharedArcFaceEmbedder
+  private constructor(inner: SharedArcFaceEmbedder) {
+    this.inner = inner
   }
 
   static async create(config: ModelConfig): Promise<ArcFaceEmbedder> {
-    const a = new ArcFaceEmbedder(config)
-    a.session = await ort.InferenceSession.create(config.arcModel, {
-      executionProviders: ['cpu'],
-    })
-    a.inputName = a.session.inputNames[0]
-    a.outputName = a.session.outputNames[0]
-    return a
+    return new ArcFaceEmbedder(await SharedArcFaceEmbedder.create(config, nodeBackend(), config.arcModel))
   }
 
   async getFeat(aimg: RgbImage): Promise<Float32Array> {
-    const { config } = this
-    const size = config.arcInputSize
-    const blob = toNchwBlob(aimg, config.arcInputMean, 1 / config.arcInputStd)
-    const feeds = { [this.inputName]: new ort.Tensor('float32', blob, [1, 3, size, size]) }
-    const out = await this.session.run(feeds, [this.outputName])
-    const data = out[this.outputName].data as Float32Array
-    return new Float32Array(data)
+    return this.inner.getFeat(aimg)
   }
 
   l2Normalize(feat: Float32Array): Float32Array {
-    let sum = 0
-    for (let i = 0; i < feat.length; i++) sum += feat[i] * feat[i]
-    const norm = Math.sqrt(sum)
-    const out = new Float32Array(feat.length)
-    if (norm > 0) {
-      for (let i = 0; i < feat.length; i++) out[i] = feat[i] / norm
-    }
-    return out
+    return this.inner.l2Normalize(feat)
+  }
+}
+
+let backendInstance: ReturnType<typeof makeNodeBackend> | null = null
+function nodeBackend() {
+  if (!backendInstance) backendInstance = makeNodeBackend()
+  return backendInstance
+}
+
+function makeNodeBackend() {
+  return {
+    async createSession(source: string | ArrayBuffer | Uint8Array, options?: ort.InferenceSession.SessionOptions) {
+      const session = await ort.InferenceSession.create(source as string, { executionProviders: ['cpu'], ...options })
+      return {
+        get inputNames() {
+          return session.inputNames
+        },
+        get outputNames() {
+          return session.outputNames
+        },
+        run: (feeds: Record<string, any>, fetches?: readonly string[]) => (fetches ? session.run(feeds, Array.from(fetches)) : session.run(feeds)),
+      }
+    },
   }
 }

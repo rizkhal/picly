@@ -27,6 +27,9 @@ Thumbs.db
 models/*.onnx
 models/*.param
 models/*.bin
+assets/*.onnx
+assets/*.param
+assets/*.bin
 
 # Temporary files
 *.tmp
