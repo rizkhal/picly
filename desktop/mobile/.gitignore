@@ -1,8 +1,0 @@
-node_modules/
-.expo/
-.expo-shared/
-build/
-*.db
-*.sqlite
-.DS_Store
-Thumbs.db
