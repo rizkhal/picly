@@ -13,7 +13,9 @@ export type RootStackParamList = {
   Auth: undefined;
   ScanProgress: { photoUri?: string } | undefined;
   PersonDetail: { personId: string };
-  PhotoDetail: { photoId: string };
+  /** photoId = media-library asset id. uri/width/height optional — when present
+   * the detail screen renders immediately without a media-library lookup. */
+  PhotoDetail: { photoId: string; uri?: string; width?: number; height?: number };
   ManagePhotos: undefined;
   ManagePeople: undefined;
 };

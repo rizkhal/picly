@@ -60,6 +60,43 @@ function emit(
 }
 
 /**
+ * Scan ONE photo and persist its faces (upsert + replace faces of that photo).
+ * Deliberately does NOT touch person assignments or run clustering — a single
+ * re-scan must not re-cluster the whole library or wipe existing names.
+ */
+export async function scanSinglePhoto(photo: ScanPhotoItem): Promise<{ faces: number; error?: string }> {
+  try {
+    const detected = await analyzePhoto(photo.uri);
+    const addFaces: AddFaceInput[] = detected.map((f, i) => ({
+      id: `${photo.id}-f${i}-${Date.now().toString(36)}`,
+      x1: Math.round(f.bbox[0]),
+      y1: Math.round(f.bbox[1]),
+      x2: Math.round(f.bbox[2]),
+      y2: Math.round(f.bbox[3]),
+      embedding: f.embedding,
+      faceQuality: f.quality,
+      lowQuality: f.lowQuality,
+      qualityScore: f.qualityScore,
+    }));
+    await addPhotoWithFaces(
+      {
+        id: photo.id,
+        assetId: photo.id,
+        uri: photo.uri,
+        width: photo.width,
+        height: photo.height,
+      } satisfies AddPhotoInput,
+      addFaces,
+    );
+    return { faces: addFaces.length };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[scan:single] error ${photo.uri}:`, err);
+    return { faces: 0, error: msg };
+  }
+}
+
+/**
  * Scan a list of photos end-to-end. Resolves when done (or cancelled).
  * Faces are stored UNASSIGNED per photo; applyClusters() at the end creates the
  * persons (same order as desktop: insert all -> offline HAC -> assign).

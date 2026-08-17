@@ -128,7 +128,17 @@ export function PhotosScreen() {
             />
           }
           renderItem={({ item }) => (
-            <Pressable style={styles.cell} onPress={() => navigation.navigate('PhotoDetail', { photoId: item.id })}>
+            <Pressable
+              style={styles.cell}
+              onPress={() =>
+                navigation.navigate('PhotoDetail', {
+                  photoId: item.id,
+                  uri: item.uri,
+                  width: item.width,
+                  height: item.height,
+                })
+              }
+            >
               <Image source={{ uri: item.uri }} style={styles.thumb} />
             </Pressable>
           )}

@@ -1,8 +1,8 @@
 diff --git a/node_modules/onnxruntime-react-native/android/build.gradle b/node_modules/onnxruntime-react-native/android/build.gradle
-index 3f7a1b2..9c4d5e6 100644
+index 41b4359..50126eb 100644
 --- a/node_modules/onnxruntime-react-native/android/build.gradle
 +++ b/node_modules/onnxruntime-react-native/android/build.gradle
-@@ -247,7 +247,7 @@
+@@ -247,7 +247,7 @@ dependencies {
      extractLibs "com.microsoft.onnxruntime:onnxruntime-android:latest.integration@aar"
    }
  
@@ -11,3 +11,20 @@ index 3f7a1b2..9c4d5e6 100644
      extractLibs "com.facebook.fbjni:fbjni:+:headers"
      extractLibs "com.facebook.fbjni:fbjni:+"
    }
+diff --git a/node_modules/onnxruntime-react-native/react-native.config.js b/node_modules/onnxruntime-react-native/react-native.config.js
+new file mode 100644
+index 0000000..f2acd0e
+--- /dev/null
++++ b/node_modules/onnxruntime-react-native/react-native.config.js
+@@ -0,0 +1,11 @@
++module.exports = {
++  dependency: {
++    platforms: {
++      android: {
++        sourceDir: './android',
++        packageImportPath: 'import ai.onnxruntime.reactnative.OnnxruntimePackage;',
++        packageInstance: 'new OnnxruntimePackage()',
++      },
++    },
++  },
++};

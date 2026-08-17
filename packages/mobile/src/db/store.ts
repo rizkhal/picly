@@ -196,6 +196,33 @@ export async function getPhoto(photoId: string): Promise<Photo | null> {
   };
 }
 
+/** Look up a photo by its media-library asset id. Returns null when unscanned. */
+export async function getPhotoByAssetId(assetId: string): Promise<Photo | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<PhotoRow>(
+    `SELECT ph.id, ph.asset_id, ph.uri, ph.width, ph.height, ph.created_at,
+            COUNT(f.id) AS face_count
+     FROM photos ph LEFT JOIN faces f ON f.photo_id = ph.id
+     WHERE ph.asset_id = ? AND ph.deleted_at IS NULL
+     GROUP BY ph.id`,
+    assetId,
+  );
+  if (!row) return null;
+
+  const faces = await getFacesForPhoto(db, row.id);
+
+  return {
+    id: row.id,
+    uri: row.uri,
+    assetId: row.asset_id ?? undefined,
+    width: row.width ?? 0,
+    height: row.height ?? 0,
+    createdAt: Date.parse(row.created_at) || Date.now(),
+    faces,
+    exists: true,
+  };
+}
+
 interface FaceWithNameRow extends FaceRow {
   person_name: string | null;
 }

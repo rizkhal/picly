@@ -98,7 +98,14 @@ export function SearchScreen() {
           renderItem={({ item }) => (
             <Pressable
               style={styles.resultRow}
-              onPress={() => navigation.navigate('PhotoDetail', { photoId: item.id })}
+              onPress={() =>
+                navigation.navigate('PhotoDetail', {
+                  photoId: item.assetId ?? item.id,
+                  uri: item.uri,
+                  width: item.width,
+                  height: item.height,
+                })
+              }
             >
               <View style={styles.resultThumbWrap}>
                 <Image source={{ uri: item.uri }} style={styles.resultThumb} />

@@ -10,10 +10,31 @@
 //    shim the rest (never called). `jpeg-js` is pure JS with no requires.
 
 const { getDefaultConfig } = require('expo/metro-config');
+const path = require('path');
 
 const config = getDefaultConfig(__dirname);
 
 config.resolver.assetExts.push('onnx');
+
+// onnxruntime-react-native declares `react-native: lib/index` (TS source) and
+// imports `onnxruntime-common`. In the npm workspace the root hoists a NEWER
+// onnxruntime-common (1.27, pulled in by picly-ml), so Metro resolves
+// `lib/index.ts`'s import to 1.27 — whose backend API changed and
+// `InferenceSession` comes back undefined. Pin the nested 1.24.3 copy that
+// ships inside onnxruntime-react-native via extraNodeModules.
+const ORT_COMMON = path.join(
+  __dirname,
+  '..',
+  '..',
+  'node_modules',
+  'onnxruntime-react-native',
+  'node_modules',
+  'onnxruntime-common',
+);
+config.resolver.extraNodeModules = {
+  ...(config.resolver.extraNodeModules ?? {}),
+  'onnxruntime-common': ORT_COMMON,
+};
 
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (['util', 'stream', 'zlib', 'assert', 'buffer'].includes(moduleName)) {
