@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -12,25 +12,33 @@ import { MagnifyingGlass, Sparkle } from 'phosphor-react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../../navigation/types';
-import { mockPhotos, mockSearchResults } from '../../data/mock';
+import type { Photo } from '../../types';
+import { usePhotos } from '../../db/hooks';
 import { colors, radius, spacing } from '../../theme';
 import { FaceBoxOverlay } from '../components/FaceBoxOverlay';
 import { EmptyState } from '../components/EmptyState';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
+import { Spinner } from '../components/Spinner';
 
 type Nav = NavigationProp<RootStackParamList>;
 
 export function SearchScreen() {
   const navigation = useNavigation<Nav>();
+  const { photos, loading } = usePhotos();
   const [query, setQuery] = useState('');
   const [reference, setReference] = useState<string | null>(null);
 
-  const results = reference
-    ? mockSearchResults.map((r) => ({
-        ...r,
-        photo: mockPhotos.find((p) => p.id === r.photoId)!,
-      }))
-    : [];
+  // Photos that actually have faces — the searchable library.
+  const withFaces = useMemo(() => photos.filter((p) => p.faces.length > 0), [photos]);
+
+  // Text search: match person names attached to a photo's faces.
+  const textResults = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return withFaces.filter((p) => p.faces.some((f) => f.name?.toLowerCase().includes(q)));
+  }, [query, withFaces]);
+
+  const results = reference ? withFaces : textResults;
 
   return (
     <ScreenSafeArea>
@@ -54,23 +62,32 @@ export function SearchScreen() {
           <Text style={styles.sectionHint}>
             Pick a face or photo to find similar faces across your library.
           </Text>
-          <FlatList
-            horizontal
-            data={mockPhotos.slice(0, 8)}
-            keyExtractor={(p) => p.id}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.refRow}
-            renderItem={({ item }) => (
-              <Pressable style={styles.refCell} onPress={() => setReference(item.id)}>
-                <Image source={{ uri: item.uri }} style={styles.refThumb} />
-              </Pressable>
-            )}
-          />
+          {loading ? (
+            <View style={styles.loadingWrap}>
+              <Spinner size="small" color={colors.textMuted} />
+            </View>
+          ) : (
+            <FlatList
+              horizontal
+              data={withFaces.slice(0, 12)}
+              keyExtractor={(p) => p.id}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.refRow}
+              renderItem={({ item }) => (
+                <Pressable style={styles.refCell} onPress={() => setReference(item.id)}>
+                  <Image source={{ uri: item.uri }} style={styles.refThumb} />
+                  <View style={styles.refBadge}>
+                    <Text style={styles.refBadgeLabel}>{item.faces.length}</Text>
+                  </View>
+                </Pressable>
+              )}
+            />
+          )}
         </View>
       ) : (
         <FlatList
           data={results}
-          keyExtractor={(r) => r.photoId}
+          keyExtractor={(r) => r.id}
           contentContainerStyle={styles.resultList}
           ListHeaderComponent={
             <Pressable style={styles.clearRow} onPress={() => setReference(null)}>
@@ -81,18 +98,18 @@ export function SearchScreen() {
           renderItem={({ item }) => (
             <Pressable
               style={styles.resultRow}
-              onPress={() => navigation.navigate('PhotoDetail', { photoId: item.photoId })}
+              onPress={() => navigation.navigate('PhotoDetail', { photoId: item.id })}
             >
               <View style={styles.resultThumbWrap}>
-                <Image source={{ uri: item.photo.uri }} style={styles.resultThumb} />
-                <FaceBoxOverlay box={item.box} highlighted />
+                <Image source={{ uri: item.uri }} style={styles.resultThumb} />
+                <FaceBoxOverlay box={item.faces[0]?.box} highlighted />
               </View>
               <View style={styles.resultInfo}>
                 <Text style={styles.resultTitle} numberOfLines={1}>
-                  {item.photo.id}
+                  {item.id}
                 </Text>
                 <Text style={styles.similarity}>
-                  {(item.similarity * 100).toFixed(0)}% similar
+                  {item.faces.length} {item.faces.length === 1 ? 'face' : 'faces'}
                 </Text>
               </View>
             </Pressable>
@@ -137,6 +154,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     padding: 0,
   },
+  loadingWrap: {
+    paddingVertical: spacing.lg,
+    alignItems: 'center',
+  },
   referenceSection: {
     marginTop: spacing.xl,
     paddingHorizontal: spacing.lg,
@@ -166,6 +187,20 @@ const styles = StyleSheet.create({
   refThumb: {
     width: '100%',
     height: '100%',
+  },
+  refBadge: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: radius.full,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  refBadgeLabel: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
   },
   resultList: {
     padding: spacing.lg,

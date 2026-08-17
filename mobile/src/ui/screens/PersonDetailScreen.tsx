@@ -2,19 +2,38 @@ import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native
 import { ArrowLeft } from 'phosphor-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/types';
-import { mockPhotos } from '../../data/mock';
+import { usePersonDetail } from '../../db/hooks';
 import { colors, radius, spacing } from '../../theme';
 import { QualityBadge } from '../components/QualityBadge';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
+import { Spinner } from '../components/Spinner';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PersonDetail'>;
 
 const COLUMNS = 3;
 
 export function PersonDetailScreen({ route, navigation }: Props) {
-  const { person } = route.params;
-  // MOCK — filter photos containing this person's face ids later.
-  const photos = mockPhotos.slice(0, 6);
+  const { personId } = route.params;
+  const { person, faces, loading } = usePersonDetail(personId);
+
+  if (loading || !person) {
+    return (
+      <ScreenSafeArea>
+        <View style={styles.loadingWrap}>
+          <Spinner size="large" color={colors.accent} />
+        </View>
+      </ScreenSafeArea>
+    );
+  }
+
+  // Group faces by photo for the grid.
+  const byPhoto = new Map<string, { uri: string; faces: typeof faces }>();
+  for (const f of faces) {
+    const entry = byPhoto.get(f.thumbnailUri) ?? { uri: f.thumbnailUri, faces: [] };
+    entry.faces.push(f);
+    byPhoto.set(f.thumbnailUri, entry);
+  }
+  const photoEntries = Array.from(byPhoto.values());
 
   return (
     <ScreenSafeArea>
@@ -43,7 +62,7 @@ export function PersonDetailScreen({ route, navigation }: Props) {
       <Text style={styles.sectionLabel}>FACES</Text>
       <FlatList
         horizontal
-        data={mockPhotos.flatMap((p) => p.faces).slice(0, 12)}
+        data={faces}
         keyExtractor={(f) => f.id}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.faceRow}
@@ -57,16 +76,13 @@ export function PersonDetailScreen({ route, navigation }: Props) {
 
       <Text style={styles.sectionLabel}>PHOTOS</Text>
       <FlatList
-        data={photos}
-        keyExtractor={(p) => p.id}
+        data={photoEntries}
+        keyExtractor={(p) => p.uri}
         numColumns={COLUMNS}
         contentContainerStyle={styles.gridContent}
         columnWrapperStyle={styles.gridRow}
         renderItem={({ item }) => (
-          <Pressable
-            style={styles.cell}
-            onPress={() => navigation.navigate('PhotoDetail', { photoId: item.id })}
-          >
+          <Pressable style={styles.cell}>
             <Image source={{ uri: item.uri }} style={styles.thumb} />
           </Pressable>
         )}
@@ -76,6 +92,11 @@ export function PersonDetailScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -70,3 +70,21 @@ export interface SearchResult {
   similarity: number;
   box: FaceBox;
 }
+
+/** A photo row from the device media library (pre-scan). */
+export interface LibraryPhoto {
+  id: string;
+  uri: string;
+  width: number;
+  height: number;
+  createdAt: number;
+  filename: string;
+  exists: boolean;
+}
+
+/** An album (folder) from the device media library. */
+export interface LibraryAlbum {
+  id: string;
+  name: string;
+  photoCount: number;
+}

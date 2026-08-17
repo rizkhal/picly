@@ -3,22 +3,34 @@ import { Users } from 'phosphor-react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../../navigation/types';
-import { mockPeople } from '../../data/mock';
+import { usePersons } from '../../db/hooks';
 import { colors, radius, spacing } from '../../theme';
 import { EmptyState } from '../components/EmptyState';
 import { QualityBadge } from '../components/QualityBadge';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
+import { Spinner } from '../components/Spinner';
 
 type Nav = NavigationProp<RootStackParamList>;
 
 export function PeopleScreen() {
   const navigation = useNavigation<Nav>();
+  const { persons, loading } = usePersons();
+
+  if (loading) {
+    return (
+      <ScreenSafeArea>
+        <View style={styles.loadingWrap}>
+          <Spinner size="large" color={colors.accent} />
+        </View>
+      </ScreenSafeArea>
+    );
+  }
 
   return (
     <ScreenSafeArea>
       <Text style={styles.headerTitle}>People</Text>
       <FlatList
-        data={mockPeople}
+        data={persons}
         keyExtractor={(p) => p.id}
         numColumns={3}
         contentContainerStyle={styles.content}
@@ -33,7 +45,7 @@ export function PeopleScreen() {
         renderItem={({ item }) => (
           <Pressable
             style={styles.cell}
-            onPress={() => navigation.navigate('PersonDetail', { person: item })}
+            onPress={() => navigation.navigate('PersonDetail', { personId: item.id })}
           >
             <View style={styles.avatarWrap}>
               <Image source={{ uri: item.avatarUri }} style={styles.avatar} />
@@ -53,6 +65,11 @@ export function PeopleScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerTitle: {
     color: colors.text,
     fontSize: 28,

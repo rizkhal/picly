@@ -13,6 +13,10 @@
     "start:web": "cd web && bun run dev",
     "build:shared": "npm run build --workspace=packages/shared",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "postinstall": "patch-package --patch-dir mobile/patches",
     "clean:all": "rm -rf node_modules mobile/node_modules backend/node_modules packages/shared/node_modules web/node_modules desktop/node_modules"
+  },
+  "dependencies": {
+    "ws": "8"
   }
 }

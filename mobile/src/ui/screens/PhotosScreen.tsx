@@ -1,31 +1,86 @@
-import { useMemo, useState } from 'react';
-import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { FolderSimple, Plus } from 'phosphor-react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FolderSimple, Images, Plus } from 'phosphor-react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RootStackParamList } from '../../navigation/types';
-import { mockFolders, mockPhotos } from '../../data/mock';
+import type { LibraryAlbum, LibraryPhoto } from '../../types';
 import { colors, radius, spacing } from '../../theme';
 import { Spinner } from '../components/Spinner';
 import { EmptyState } from '../components/EmptyState';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
+import { ensurePhotoPermission, fetchAlbums, fetchPhotoLibrary } from '../../db/media';
 
 type Nav = NavigationProp<RootStackParamList>;
 
 const COLUMNS = 3;
+const PAGE_SIZE = 120;
 
 export function PhotosScreen() {
   const navigation = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
   const [seg, setSeg] = useState<'all' | 'folders'>('all');
-  // MOCK — replace with expo-media-library asset query + scan status.
+  const [photos, setPhotos] = useState<LibraryPhoto[]>([]);
+  const [albums, setAlbums] = useState<LibraryAlbum[]>([]);
+  const [permission, setPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown');
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  // MOCK — replace with real scanner events from the pipeline.
   const [scanning, setScanning] = useState(false);
 
+  const loadPage = useCallback(async (p: number, append: boolean) => {
+    const { items, hasMore: more } = await fetchPhotoLibrary(p, PAGE_SIZE);
+    setPhotos((prev) => (append ? [...prev, ...items] : items));
+    setHasMore(more);
+    setPage(p);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadPage(0, false);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadPage]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const ok = await ensurePhotoPermission();
+      if (cancelled) return;
+      setPermission(ok ? 'granted' : 'denied');
+      if (ok) {
+        await loadPage(0, false);
+        const al = await fetchAlbums();
+        if (!cancelled) setAlbums(al);
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadPage]);
+
   const gridPhotos = useMemo(() => {
-    if (seg === 'all') return mockPhotos;
-    return mockPhotos.slice(0, 5);
-  }, [seg]);
+    if (seg === 'all') return photos;
+    // Folder mode currently shows all — folder drill-down wires in later.
+    return photos;
+  }, [seg, photos]);
+
+  if (loading) {
+    return (
+      <ScreenSafeArea>
+        <View style={styles.loadingWrap}>
+          <Spinner size="large" color={colors.accent} />
+          <Text style={styles.loadingLabel}>Loading your photos…</Text>
+        </View>
+      </ScreenSafeArea>
+    );
+  }
 
   return (
     <ScreenSafeArea>
@@ -45,7 +100,13 @@ export function PhotosScreen() {
         </View>
       </View>
 
-      {seg === 'all' ? (
+      {permission === 'denied' ? (
+        <EmptyState
+          icon={Images}
+          title="Photo access needed"
+          subtitle="Allow photo access in system settings so Picly can find and scan your faces."
+        />
+      ) : seg === 'all' ? (
         <FlatList
           key="photos-grid"
           data={gridPhotos}
@@ -53,21 +114,36 @@ export function PhotosScreen() {
           numColumns={COLUMNS}
           contentContainerStyle={styles.gridContent}
           columnWrapperStyle={styles.gridRow}
+          onEndReached={() => {
+            if (hasMore && !refreshing) loadPage(page + 1, true);
+          }}
+          onEndReachedThreshold={0.4}
+          onRefresh={refresh}
+          refreshing={refreshing}
+          ListEmptyComponent={
+            <EmptyState
+              icon={Images}
+              title="No photos yet"
+              subtitle="Photos on your device will show up here."
+            />
+          }
           renderItem={({ item }) => (
             <Pressable style={styles.cell} onPress={() => navigation.navigate('PhotoDetail', { photoId: item.id })}>
               <Image source={{ uri: item.uri }} style={styles.thumb} />
-              {item.faces.length > 1 ? (
-                <View style={styles.countBadge}>
-                  <Text style={styles.countLabel}>{item.faces.length}</Text>
-                </View>
-              ) : null}
             </Pressable>
           )}
+          ListFooterComponent={
+            loading || refreshing ? (
+              <View style={styles.footerLoading}>
+                <ActivityIndicator color={colors.textMuted} />
+              </View>
+            ) : null
+          }
         />
       ) : (
         <FlatList
           key="folders-list"
-          data={mockFolders}
+          data={albums}
           keyExtractor={(f) => f.id}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
@@ -99,6 +175,16 @@ export function PhotosScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
+  },
+  loadingLabel: {
+    color: colors.textMuted,
+    fontSize: 13,
+  },
   header: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
@@ -147,19 +233,9 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  countBadge: {
-    position: 'absolute',
-    right: 6,
-    bottom: 6,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    borderRadius: radius.full,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-  },
-  countLabel: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '700',
+  footerLoading: {
+    paddingVertical: spacing.lg,
+    alignItems: 'center',
   },
   listContent: {
     padding: spacing.lg,

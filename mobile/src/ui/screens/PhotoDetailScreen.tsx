@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -12,12 +12,13 @@ import { ArrowLeft, MagnifyingGlassPlus, MagnifyingGlassMinus } from 'phosphor-r
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/types';
 import type { Face } from '../../types';
-import { mockPeople, mockPhotos } from '../../data/mock';
+import { usePhoto } from '../../db/hooks';
 import { colors, radius, spacing } from '../../theme';
 import { FaceBoxOverlay } from '../components/FaceBoxOverlay';
 import { FaceSheet } from '../components/FaceSheet';
 import { QualityBadge } from '../components/QualityBadge';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
+import { Spinner } from '../components/Spinner';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PhotoDetail'>;
 
@@ -29,15 +30,42 @@ type Props = NativeStackScreenProps<RootStackParamList, 'PhotoDetail'>;
 export function PhotoDetailScreen({ route, navigation }: Props) {
   const { photoId } = route.params;
   const { width } = useWindowDimensions();
+  const { photo, loading } = usePhoto(photoId);
 
-  const photo = mockPhotos.find((p) => p.id === photoId) ?? mockPhotos[0];
   const [scale, setScale] = useState(1);
   const [activeFace, setActiveFace] = useState<Face | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
-  const [faces, setFaces] = useState(photo.faces);
+  const [localFaces, setLocalFaces] = useState<Face[]>([]);
 
-  // MOCK — real pipeline returns rendered face positions; here the photo is
-  // uniformly scaled so normalized boxes map directly onto the displayed image.
+  // Normalize pixel bboxes (from the DB) to 0..1 relative to the photo, and
+  // seed local state once when the photo loads.
+  const normalized = useMemo(() => {
+    if (!photo) return [];
+    return photo.faces.map((f) => ({
+      ...f,
+      box: {
+        x: f.box.x / photo.width,
+        y: f.box.y / photo.height,
+        w: f.box.w / photo.width,
+        h: f.box.h / photo.height,
+      },
+    }));
+  }, [photo]);
+
+  useEffect(() => {
+    if (photo) setLocalFaces(normalized);
+  }, [normalized, photo]);
+
+  if (loading || !photo) {
+    return (
+      <ScreenSafeArea>
+        <View style={styles.loadingWrap}>
+          <Spinner size="large" color={colors.accent} />
+        </View>
+      </ScreenSafeArea>
+    );
+  }
+
   const displayHeight = (width / photo.width) * photo.height;
 
   const openFace = (face: Face) => {
@@ -48,7 +76,7 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
   const handleRename = (name: string) => {
     if (!activeFace) return;
     const trimmed = name.trim();
-    setFaces((prev) =>
+    setLocalFaces((prev) =>
       prev.map((f) => (f.id === activeFace.id ? { ...f, name: trimmed || null } : f)),
     );
     setSheetVisible(false);
@@ -56,20 +84,19 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
 
   const handleUnassign = () => {
     if (!activeFace) return;
-    setFaces((prev) =>
-      prev.map((f) => (f.id === activeFace.id ? { ...f, name: null, personId: null, status: 'unassigned' } : f)),
+    setLocalFaces((prev) =>
+      prev.map((f) =>
+        f.id === activeFace.id ? { ...f, name: null, personId: null, status: 'unassigned' } : f,
+      ),
     );
     setSheetVisible(false);
   };
 
   const handleAssign = (personName: string) => {
     if (!activeFace) return;
-    const person = mockPeople.find((p) => p.name === personName);
-    setFaces((prev) =>
+    setLocalFaces((prev) =>
       prev.map((f) =>
-        f.id === activeFace.id
-          ? { ...f, name: personName, personId: person?.id ?? null, status: 'recognized' }
-          : f,
+        f.id === activeFace.id ? { ...f, name: personName, status: 'recognized' } : f,
       ),
     );
     setSheetVisible(false);
@@ -82,7 +109,7 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
           <ArrowLeft size={22} color={colors.text} />
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>
-          {faces.length} {faces.length === 1 ? 'face' : 'faces'}
+          {localFaces.length} {localFaces.length === 1 ? 'face' : 'faces'}
         </Text>
         <View style={styles.zoomRow}>
           <Pressable
@@ -120,7 +147,7 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
             style={[styles.photo, { width: width * scale, height: displayHeight * scale }]}
             resizeMode="cover"
           />
-          {faces.map((face) => (
+          {localFaces.map((face) => (
             <View key={face.id} style={StyleSheet.absoluteFill}>
               <Pressable
                 style={{
@@ -141,7 +168,7 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
 
       <View style={styles.faceStrip}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {faces.map((face) => (
+          {localFaces.map((face) => (
             <Pressable key={face.id} style={styles.faceChip} onPress={() => openFace(face)}>
               <Image source={{ uri: face.thumbnailUri }} style={styles.faceChipThumb} />
               <QualityBadge tier={face.quality} size="sm" />
@@ -153,7 +180,7 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
       <FaceSheet
         face={activeFace}
         photoUri={photo.uri}
-        peopleNames={mockPeople.map((p) => p.name)}
+        peopleNames={[]}
         visible={sheetVisible}
         onClose={() => setSheetVisible(false)}
         onRename={handleRename}
@@ -165,6 +192,11 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

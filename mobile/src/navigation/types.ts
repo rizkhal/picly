@@ -1,6 +1,4 @@
 // Navigation route types. Screens receive their params through these.
-import type { Person } from '../types';
-
 export type RootTabParamList = {
   PhotosTab: undefined;
   PeopleTab: undefined;
@@ -14,7 +12,7 @@ export type RootStackParamList = {
   Onboarding: undefined;
   Auth: undefined;
   ScanProgress: { photoUri?: string } | undefined;
-  PersonDetail: { person: Person };
+  PersonDetail: { personId: string };
   PhotoDetail: { photoId: string };
   ManagePhotos: undefined;
   ManagePeople: undefined;
