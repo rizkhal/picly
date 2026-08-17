@@ -9,8 +9,10 @@ export type RootTabParamList = {
 };
 
 export type RootStackParamList = {
+  AuthFlow: undefined;
   Main: undefined;
   Onboarding: undefined;
+  Auth: undefined;
   ScanProgress: { photoUri?: string } | undefined;
   PersonDetail: { person: Person };
   PhotoDetail: { photoId: string };

@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import type { Icon } from 'phosphor-react-native';
 import {
   Gear,
@@ -10,7 +10,9 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { RootStackParamList, RootTabParamList } from './types';
 import { colors, radius, spacing } from '../theme';
+import { useAuth } from '../auth/AuthContext';
 import { OnboardingScreen } from '../ui/screens/OnboardingScreen';
+import { AuthScreen } from '../ui/screens/AuthScreen';
 import { PhotosScreen } from '../ui/screens/PhotosScreen';
 import { PeopleScreen } from '../ui/screens/PeopleScreen';
 import { SearchScreen } from '../ui/screens/SearchScreen';
@@ -18,6 +20,7 @@ import { SettingsScreen } from '../ui/screens/SettingsScreen';
 import { ScanProgressScreen } from '../ui/screens/ScanProgressScreen';
 import { PersonDetailScreen } from '../ui/screens/PersonDetailScreen';
 import { PhotoDetailScreen } from '../ui/screens/PhotoDetailScreen';
+import { Spinner } from '../ui/components/Spinner';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -65,11 +68,36 @@ function TabNavigator() {
   );
 }
 
-export function RootNavigator() {
+function AuthFlow() {
+  const { user } = useAuth();
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="Main" component={TabNavigator} />
-      <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+      {user ? (
+        <Stack.Screen name="Main" component={TabNavigator} />
+      ) : (
+        <>
+          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+          <Stack.Screen name="Auth" component={AuthScreen} />
+        </>
+      )}
+    </Stack.Navigator>
+  );
+}
+
+export function RootNavigator() {
+  const { ready } = useAuth();
+
+  if (!ready) {
+    return (
+      <View style={styles.loading}>
+        <Spinner size="large" color={colors.accent} />
+      </View>
+    );
+  }
+
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="AuthFlow" component={AuthFlow} />
       <Stack.Screen name="ScanProgress" component={ScanProgressScreen} />
       <Stack.Screen name="PersonDetail" component={PersonDetailScreen} />
       <Stack.Screen name="PhotoDetail" component={PhotoDetailScreen} />
@@ -86,5 +114,11 @@ const styles = StyleSheet.create({
   tabLabel: {
     fontSize: 11,
     fontWeight: '600',
+  },
+  loading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.bg,
   },
 });

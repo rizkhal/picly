@@ -12,6 +12,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../../navigation/types';
+import { useAuth } from '../../auth/AuthContext';
 import { colors, radius, spacing } from '../../theme';
 import type { Icon } from 'phosphor-react-native';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
@@ -58,7 +59,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export function SettingsScreen() {
   const navigation = useNavigation<Nav>();
+  const { user, logout } = useAuth();
   const [theme, setTheme] = useState<ThemeMode>('system');
+
+  const handleSignOut = async () => {
+    await logout();
+  };
 
   return (
     <ScreenSafeArea>
@@ -83,7 +89,7 @@ export function SettingsScreen() {
       </Section>
 
       <Section title="ACCOUNT">
-        <Row icon={User} label="Signed in" value="local" />
+        <Row icon={User} label="Signed in" value={user?.email ?? 'local'} />
       </Section>
 
       <Section title="STORAGE">
@@ -102,7 +108,7 @@ export function SettingsScreen() {
         <Row icon={Info} label="Check for updates" onPress={() => {}} />
       </Section>
 
-      <Pressable style={styles.signOut} onPress={() => navigation.navigate('Onboarding')}>
+      <Pressable style={styles.signOut} onPress={handleSignOut}>
         <SignOut size={18} color={colors.danger} />
         <Text style={styles.signOutLabel}>Sign out</Text>
       </Pressable>

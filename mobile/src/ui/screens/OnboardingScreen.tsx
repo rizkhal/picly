@@ -1,9 +1,10 @@
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { LockKey, ShieldCheck } from 'phosphor-react-native';
+import { ArrowRight, LockKey, ShieldCheck } from 'phosphor-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radius, spacing, typography } from '../../theme';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
+import { LanguagePicker } from '../components/LanguagePicker';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Onboarding'>;
 
@@ -12,17 +13,19 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Onboarding'>;
  * The CTA triggers the photo library permission flow (wired later).
  */
 export function OnboardingScreen({ navigation }: Props) {
-  // MOCK — replace with expo-media-library permission request + persistence.
-  const requestAccess = () => navigation.replace('Main');
+  const goAuth = () => navigation.navigate('Auth');
 
   return (
     <ScreenSafeArea>
       <View style={styles.container}>
-        <View style={styles.top}>
-          <View style={styles.logoWrap}>
-            <Image source={require('../../../assets/logo-128.png')} style={styles.logoImg} />
+        <View style={styles.header}>
+          <View style={styles.top}>
+            <View style={styles.logoWrap}>
+              <Image source={require('../../../assets/logo-128.png')} style={styles.logoImg} />
+            </View>
+            <Text style={styles.brand}>Picly</Text>
           </View>
-          <Text style={styles.brand}>Picly</Text>
+          <LanguagePicker />
         </View>
 
         <View style={styles.hero}>
@@ -57,11 +60,9 @@ export function OnboardingScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.bottom}>
-          <Pressable style={styles.primaryBtn} onPress={requestAccess}>
+          <Pressable style={styles.primaryBtn} onPress={goAuth}>
             <Text style={styles.primaryLabel}>Access my photos</Text>
-          </Pressable>
-          <Pressable onPress={() => navigation.replace('Main')} hitSlop={8}>
-            <Text style={styles.skipLabel}>Not now</Text>
+            <ArrowRight size={20} color="#fff" weight="bold" />
           </Pressable>
         </View>
       </View>
@@ -75,6 +76,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   top: {
     flexDirection: 'row',
@@ -151,19 +157,17 @@ const styles = StyleSheet.create({
     gap: spacing.lg,
   },
   primaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
     backgroundColor: colors.accent,
     borderRadius: radius.md,
     paddingVertical: 16,
-    alignItems: 'center',
   },
   primaryLabel: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '700',
-  },
-  skipLabel: {
-    color: colors.textMuted,
-    fontSize: 14,
-    textAlign: 'center',
   },
 });
