@@ -1,0 +1,105 @@
+{
+  "name": "picly-desktop",
+  "productName": "Picly",
+  "version": "1.0.1",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/main/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "verify:pipeline": "tsx scripts/verify-pipeline.ts  # golden fixtures: docs/ml-parity/golden.json",
+    "scan:test": "node scripts/prepare-native.mjs node && tsx scripts/scan-test.ts",
+    "cluster:test": "node scripts/prepare-native.mjs node && tsx scripts/cluster-test.ts",
+    "parity:cluster": "node scripts/prepare-native.mjs node && tsx scripts/parity-cluster.ts",
+    "typecheck:ml": "tsc -p tsconfig.ml.json",
+    "build:local": "tsc -p tsconfig.local.json",
+    "smoke:electron": "npm run build:local && node scripts/prepare-native.mjs electron && electron scripts/electron-smoke.cjs",
+    "electron:dev": "npm run build:local && node scripts/prepare-native.mjs electron && node scripts/dev.mjs",
+    "electron:build": "npm run build:local && node scripts/prepare-native.mjs electron && vite build && electron-builder",
+    "generate:icon": "node scripts/generate-icon.mjs",
+    "abi:check": "npm run build:local && node scripts/prepare-native.mjs electron && node scripts/run-abi-check.cjs",
+    "auth:smoke": "ELECTRON_RUN_AS_NODE=1 electron scripts/auth-smoke.cjs",
+    "postinstall": "node scripts/fix-electron.mjs && node scripts/rebuild-native.mjs"
+  },
+  "build": {
+    "appId": "com.picly.app",
+    "productName": "Picly",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-main/**/*",
+      "src/main/**/*",
+      "build/icon.png"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*",
+      "node_modules/onnxruntime-node/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../../models",
+        "to": "models"
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64"]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "artifactName": "Picly-${version}-${arch}.${ext}",
+      "category": "public.app-category.graphics-design",
+      "hardenedRuntime": false
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico",
+      "artifactName": "Picly-Setup-${version}.${ext}"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build/icon.png",
+      "artifactName": "Picly-${version}.${ext}",
+      "category": "Graphics"
+    }
+  },
+  "dependencies": {
+    "@electron/get": "^2.0.3",
+    "@phosphor-icons/react": "^2.1.10",
+    "better-sqlite3": "11.10.0",
+    "onnxruntime-node": "^1.27.0",
+    "picly-ml": "file:../ml",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sharp": "^0.35.3",
+    "xxhash-wasm": "^1.1.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.2.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.0",
+    "electron-builder": "^24.13.3",
+    "tsx": "^4.23.12",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.3"
+  },
+  "trustedDependencies": [
+    "electron",
+    "better-sqlite3",
+    "sharp",
+    "onnxruntime-node"
+  ]
+}
