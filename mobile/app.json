@@ -1,16 +1,11 @@
 {
   "expo": {
-    "name": "Picly Mobile",
+    "name": "Picly",
     "slug": "picly-mobile",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#111827"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -25,7 +20,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/adaptive-icon-foreground.png",
         "backgroundColor": "#111827"
       },
       "package": "com.picly.mobile",
@@ -39,12 +34,18 @@
       "expo-image-picker",
       "expo-sqlite",
       "expo-file-system",
-      "expo-media-library"
+      "expo-media-library",
+      "expo-status-bar",
+      "expo-system-ui",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#111827"
+        }
+      ]
     ],
-    "primaryColor": "#111827",
-    "androidStatusBar": {
-      "backgroundColor": "#111827",
-      "barStyle": "light-content"
-    }
+    "primaryColor": "#111827"
   }
 }

@@ -26,6 +26,10 @@ __pycache__/
 .venv/
 venv/
 
+/* Lockfiles — desktop keeps its own bun.lock; the npm workspace keeps package-lock.json.
+   bun.lock appears at the root when bunx runs inside the npm workspace — never commit it. */
+bun.lock
+
 # OS
 .DS_Store
 Thumbs.db
