@@ -14,6 +14,7 @@ import type { NavigationProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radius, spacing } from '../../theme';
 import type { Icon } from 'phosphor-react-native';
+import { ScreenSafeArea } from '../components/ScreenSafeArea';
 
 type Nav = NavigationProp<RootStackParamList>;
 
@@ -60,7 +61,8 @@ export function SettingsScreen() {
   const [theme, setTheme] = useState<ThemeMode>('system');
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScreenSafeArea>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.headerTitle}>Settings</Text>
 
       <Section title="APPEARANCE">
@@ -104,7 +106,8 @@ export function SettingsScreen() {
         <SignOut size={18} color={colors.danger} />
         <Text style={styles.signOutLabel}>Sign out</Text>
       </Pressable>
-    </ScrollView>
+      </ScrollView>
+    </ScreenSafeArea>
   );
 }
 

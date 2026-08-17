@@ -7,6 +7,7 @@ import { mockPeople } from '../../data/mock';
 import { colors, radius, spacing } from '../../theme';
 import { EmptyState } from '../components/EmptyState';
 import { QualityBadge } from '../components/QualityBadge';
+import { ScreenSafeArea } from '../components/ScreenSafeArea';
 
 type Nav = NavigationProp<RootStackParamList>;
 
@@ -14,7 +15,7 @@ export function PeopleScreen() {
   const navigation = useNavigation<Nav>();
 
   return (
-    <View style={styles.container}>
+    <ScreenSafeArea>
       <Text style={styles.headerTitle}>People</Text>
       <FlatList
         data={mockPeople}
@@ -47,15 +48,11 @@ export function PeopleScreen() {
           </Pressable>
         )}
       />
-    </View>
+    </ScreenSafeArea>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
   headerTitle: {
     color: colors.text,
     fontSize: 28,

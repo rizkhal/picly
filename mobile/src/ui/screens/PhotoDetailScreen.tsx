@@ -17,6 +17,7 @@ import { colors, radius, spacing } from '../../theme';
 import { FaceBoxOverlay } from '../components/FaceBoxOverlay';
 import { FaceSheet } from '../components/FaceSheet';
 import { QualityBadge } from '../components/QualityBadge';
+import { ScreenSafeArea } from '../components/ScreenSafeArea';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PhotoDetail'>;
 
@@ -75,7 +76,7 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
   };
 
   return (
-    <View style={styles.container}>
+    <ScreenSafeArea>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={10}>
           <ArrowLeft size={22} color={colors.text} />
@@ -159,15 +160,11 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
         onUnassign={handleUnassign}
         onAssign={handleAssign}
       />
-    </View>
+    </ScreenSafeArea>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -5,6 +5,7 @@ import type { RootStackParamList } from '../../navigation/types';
 import { mockPhotos } from '../../data/mock';
 import { colors, radius, spacing } from '../../theme';
 import { QualityBadge } from '../components/QualityBadge';
+import { ScreenSafeArea } from '../components/ScreenSafeArea';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PersonDetail'>;
 
@@ -16,7 +17,7 @@ export function PersonDetailScreen({ route, navigation }: Props) {
   const photos = mockPhotos.slice(0, 6);
 
   return (
-    <View style={styles.container}>
+    <ScreenSafeArea>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={10}>
           <ArrowLeft size={22} color={colors.text} />
@@ -70,15 +71,11 @@ export function PersonDetailScreen({ route, navigation }: Props) {
           </Pressable>
         )}
       />
-    </View>
+    </ScreenSafeArea>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

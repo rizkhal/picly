@@ -1,8 +1,9 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Image, LockKey, ShieldCheck } from 'phosphor-react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { LockKey, ShieldCheck } from 'phosphor-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/types';
 import { colors, radius, spacing, typography } from '../../theme';
+import { ScreenSafeArea } from '../components/ScreenSafeArea';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Onboarding'>;
 
@@ -15,63 +16,64 @@ export function OnboardingScreen({ navigation }: Props) {
   const requestAccess = () => navigation.replace('Main');
 
   return (
-    <View style={styles.container}>
-      <View style={styles.top}>
-        <View style={styles.logoWrap}>
-          <Image size={34} color={colors.faceBox} weight="fill" />
+    <ScreenSafeArea>
+      <View style={styles.container}>
+        <View style={styles.top}>
+          <View style={styles.logoWrap}>
+            <Image source={require('../../../assets/logo-128.png')} style={styles.logoImg} />
+          </View>
+          <Text style={styles.brand}>Picly</Text>
         </View>
-        <Text style={styles.brand}>Picly</Text>
-      </View>
 
-      <View style={styles.hero}>
-        <Text style={styles.headline}>
-          Every face in your photos,{'\n'}automatically organized
-        </Text>
-        <Text style={styles.subhead}>
-          Picly scans your library, detects every person, and groups them — all on
-          your device.
-        </Text>
-      </View>
+        <View style={styles.hero}>
+          <Text style={styles.headline}>
+            Every face in your photos,{'\n'}automatically organized
+          </Text>
+          <Text style={styles.subhead}>
+            Picly scans your library, detects every person, and groups them — all
+            on your device.
+          </Text>
+        </View>
 
-      <View style={styles.cards}>
-        <View style={styles.card}>
-          <LockKey size={22} color={colors.success} weight="regular" />
-          <View style={styles.cardText}>
-            <Text style={styles.cardTitle}>Your photos never leave</Text>
-            <Text style={styles.cardBody}>
-              Everything runs on-device. No uploads, no cloud, no accounts required.
-            </Text>
+        <View style={styles.cards}>
+          <View style={styles.card}>
+            <LockKey size={22} color={colors.success} weight="regular" />
+            <View style={styles.cardText}>
+              <Text style={styles.cardTitle}>Your photos never leave</Text>
+              <Text style={styles.cardBody}>
+                Everything runs on-device. No uploads, no cloud, no accounts required.
+              </Text>
+            </View>
+          </View>
+          <View style={styles.card}>
+            <ShieldCheck size={22} color={colors.success} weight="regular" />
+            <View style={styles.cardText}>
+              <Text style={styles.cardTitle}>Private by design</Text>
+              <Text style={styles.cardBody}>
+                Faces are indexed locally and stay under your control.
+              </Text>
+            </View>
           </View>
         </View>
-        <View style={styles.card}>
-          <ShieldCheck size={22} color={colors.success} weight="regular" />
-          <View style={styles.cardText}>
-            <Text style={styles.cardTitle}>Private by design</Text>
-            <Text style={styles.cardBody}>
-              Faces are indexed locally and stay under your control.
-            </Text>
-          </View>
+
+        <View style={styles.bottom}>
+          <Pressable style={styles.primaryBtn} onPress={requestAccess}>
+            <Text style={styles.primaryLabel}>Access my photos</Text>
+          </Pressable>
+          <Pressable onPress={() => navigation.replace('Main')} hitSlop={8}>
+            <Text style={styles.skipLabel}>Not now</Text>
+          </Pressable>
         </View>
       </View>
-
-      <View style={styles.bottom}>
-        <Pressable style={styles.primaryBtn} onPress={requestAccess}>
-          <Text style={styles.primaryLabel}>Access my photos</Text>
-        </Pressable>
-        <Pressable onPress={() => navigation.replace('Main')} hitSlop={8}>
-          <Text style={styles.skipLabel}>Not now</Text>
-        </Pressable>
-      </View>
-    </View>
+    </ScreenSafeArea>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.bg,
     paddingHorizontal: spacing.xl,
-    paddingTop: 76,
+    paddingTop: spacing.lg,
     paddingBottom: spacing.xxl,
   },
   top: {
@@ -88,6 +90,11 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  logoImg: {
+    width: 40,
+    height: 40,
   },
   brand: {
     color: colors.text,

@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { X } from 'phosphor-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Face } from '../../types';
 import { colors, radius, spacing } from '../../theme';
 import { QualityBadge } from './QualityBadge';
@@ -41,6 +42,7 @@ export function FaceSheet({
   onUnassign,
   onAssign,
 }: Props) {
+  const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState('');
 
   if (!face) return null;
@@ -49,7 +51,7 @@ export function FaceSheet({
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + spacing.lg }]}>
           <View style={styles.header}>
             <Text style={styles.title}>Face</Text>
             <View style={styles.headerRight}>

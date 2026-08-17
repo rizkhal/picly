@@ -6,6 +6,7 @@ import type { RootStackParamList } from '../../navigation/types';
 import type { ScanStage } from '../../types';
 import { colors, radius, spacing } from '../../theme';
 import { Spinner } from '../components/Spinner';
+import { ScreenSafeArea } from '../components/ScreenSafeArea';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScanProgress'>;
 
@@ -44,7 +45,7 @@ export function ScanProgressScreen({ navigation }: Props) {
   const stage = STAGES[stageIdx];
 
   return (
-    <View style={styles.container}>
+    <ScreenSafeArea>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={10}>
           <ArrowLeft size={22} color={colors.text} />
@@ -80,15 +81,11 @@ export function ScanProgressScreen({ navigation }: Props) {
       <Pressable style={styles.cancelBtn} onPress={() => navigation.goBack()}>
         <Text style={styles.cancelLabel}>Cancel scan</Text>
       </Pressable>
-    </View>
+    </ScreenSafeArea>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

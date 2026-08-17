@@ -16,6 +16,7 @@ import { mockPhotos, mockSearchResults } from '../../data/mock';
 import { colors, radius, spacing } from '../../theme';
 import { FaceBoxOverlay } from '../components/FaceBoxOverlay';
 import { EmptyState } from '../components/EmptyState';
+import { ScreenSafeArea } from '../components/ScreenSafeArea';
 
 type Nav = NavigationProp<RootStackParamList>;
 
@@ -32,7 +33,7 @@ export function SearchScreen() {
     : [];
 
   return (
-    <View style={styles.container}>
+    <ScreenSafeArea>
       <Text style={styles.headerTitle}>Search</Text>
 
       <View style={styles.searchBox}>
@@ -105,15 +106,11 @@ export function SearchScreen() {
           }
         />
       )}
-    </View>
+    </ScreenSafeArea>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
   headerTitle: {
     color: colors.text,
     fontSize: 28,

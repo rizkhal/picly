@@ -3,11 +3,13 @@ import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native
 import { FolderSimple, Plus } from 'phosphor-react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { RootStackParamList } from '../../navigation/types';
 import { mockFolders, mockPhotos } from '../../data/mock';
 import { colors, radius, spacing } from '../../theme';
 import { Spinner } from '../components/Spinner';
 import { EmptyState } from '../components/EmptyState';
+import { ScreenSafeArea } from '../components/ScreenSafeArea';
 
 type Nav = NavigationProp<RootStackParamList>;
 
@@ -15,6 +17,7 @@ const COLUMNS = 3;
 
 export function PhotosScreen() {
   const navigation = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const [seg, setSeg] = useState<'all' | 'folders'>('all');
   // MOCK — replace with expo-media-library asset query + scan status.
   const [scanning, setScanning] = useState(false);
@@ -25,7 +28,7 @@ export function PhotosScreen() {
   }, [seg]);
 
   return (
-    <View style={styles.container}>
+    <ScreenSafeArea>
       <View style={styles.header}>
         <View style={styles.seg}>
           {(['all', 'folders'] as const).map((key) => (
@@ -44,6 +47,7 @@ export function PhotosScreen() {
 
       {seg === 'all' ? (
         <FlatList
+          key="photos-grid"
           data={gridPhotos}
           keyExtractor={(p) => p.id}
           numColumns={COLUMNS}
@@ -62,6 +66,7 @@ export function PhotosScreen() {
         />
       ) : (
         <FlatList
+          key="folders-list"
           data={mockFolders}
           keyExtractor={(f) => f.id}
           contentContainerStyle={styles.listContent}
@@ -81,23 +86,19 @@ export function PhotosScreen() {
 
       {/* FAB — start scan (also shown as header action when idle). */}
       {!scanning ? (
-        <Pressable style={styles.fab} onPress={() => setScanning(true)}>
+        <Pressable style={[styles.fab, { bottom: insets.bottom + spacing.lg }]} onPress={() => setScanning(true)}>
           <Plus size={22} color="#fff" weight="bold" />
         </Pressable>
       ) : (
-        <Pressable style={styles.fabScanning} onPress={() => navigation.navigate('ScanProgress')}>
+        <Pressable style={[styles.fabScanning, { bottom: insets.bottom + spacing.lg }]} onPress={() => navigation.navigate('ScanProgress')}>
           <Spinner size="small" color="#fff" />
         </Pressable>
       )}
-    </View>
+    </ScreenSafeArea>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
   header: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
