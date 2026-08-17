@@ -3,9 +3,9 @@
 // Central config used by desktop (Electron) + mobile (Expo) apps.
 //
 // ⚠️ Source of truth: these numbers mirror the BENCHMARKED production defaults
-// in desktop/src/main (detection frozen, quality gating validated, clustering
+// in packages/desktop/src/main (detection frozen, quality gating validated, clustering
 // tuned to 0.45 on LFW + psdkp crowded photos). Keep in sync when the desktop
-// pipeline changes — see desktop/src/main/ml/faceAnalysis.ts + db/store.ts.
+// pipeline changes — see packages/desktop/src/main/ml/faceAnalysis.ts + db/store.ts.
 // ============================================================================
 
 export const MODEL_CONFIG = {

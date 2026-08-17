@@ -1,5 +1,5 @@
 /**
- * Shared pipeline types — ported verbatim from desktop/src/main/ml/types.ts so
+ * Shared pipeline types — ported verbatim from packages/desktop/src/main/ml/types.ts so
  * desktop and mobile consume the exact same shapes.
  */
 

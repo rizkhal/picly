@@ -34,63 +34,68 @@
 
 ## Stack
 
-- **ML engine**: InsightFace `buffalo_l` (CPU) — run natively in the desktop via **ONNX Runtime** (`onnxruntime-node`), ported 1:1 from the Python reference (`desktop/src/main/ml/`)
-- **Storage**: local **SQLite** (`desktop/src/main/db/`) — photos, faces, persons, embeddings (BLOB) + JS cosine search
-- **Scanner**: local, hash dedup + thumbnails + centroid clustering (`desktop/src/main/scanner.ts`)
-- **Desktop**: Electron + React (see `desktop/`) — **100% local, works fully offline**
-- **Backend**: minimal **Hono** service (`backend/`) — **auth** (register/login) + **in-app update manifest** (`GET /app/update`)
-- **Web**: static React+Vite landing page (`web/`)
-- **Mobile**: Expo React Native app (`mobile/`) — *early scaffold on branch `mobile-rn`* (ONNX Runtime Mobile, expo-sqlite)
+- **ML engine**: InsightFace `buffalo_l` (CPU) — run natively via **ONNX Runtime** (`onnxruntime-node` on desktop, `onnxruntime-react-native` on mobile), ported 1:1 from the Python reference (`packages/ml/`)
+- **Storage**: local **SQLite** (`packages/desktop/src/main/db/`) — photos, faces, persons, embeddings (BLOB) + JS cosine search
+- **Scanner**: local, hash dedup + thumbnails + centroid clustering (`packages/desktop/src/main/scanner.ts`)
+- **Desktop**: Electron + React (see `packages/desktop/`) — **100% local, works fully offline**
+- **Backend**: minimal **Hono** service (`packages/backend/`) — **auth** (register/login) + **in-app update manifest** (`GET /app/update`)
+- **Web**: static React+Vite landing page (`packages/web/`)
+- **Mobile**: Expo React Native app (`packages/mobile/`) — ONNX Runtime Mobile, expo-sqlite, offline ML on-device
 - **Shared**: `packages/shared` (`picly-shared`) — cross-platform config + types for desktop & mobile
+- **ML package**: `packages/ml` (`picly-ml`) — the frozen detection/quality/embedding pipeline, shared by desktop + mobile
 
 ## Monorepo structure
 
-Picly is an npm workspaces monorepo. The root `package.json` declares the npm
-workspaces (`mobile`, `packages/shared`); `desktop/`, `web/` and `backend/` are
-tracked by git but keep their **own lockfiles (`bun.lock`)** so their toolchains
-(desktop: Electron + native rebuilds; web: Vite; backend: Hono) stay untouched
-by npm installs.
+Picly is an npm workspaces monorepo — **everything** lives under `packages/`, plus
+shared models at the root `models/`. The root `package.json` declares all six
+workspaces; `packages/desktop` keeps its own `bun.lock` (Electron + native
+rebuilds), the others are npm-managed.
 
 ```
 picly/
-├── desktop/          # Electron app (bun.lock) — ML pipeline, SQLite, scanner, UI
-├── mobile/           # Expo React Native app (npm) — ONNX Runtime Mobile (wip)
-├── web/              # Landing page (bun.lock) — React + Vite
-├── backend/          # Hono service (bun.lock) — auth + update manifest
+├── models/             # shared ONNX models (buffalo_l + ediffiqa) — desktop + mobile
 ├── packages/
-│   └── shared/       # picly-shared — shared config + TS types (npm)
-└── package.json      # npm workspaces + root scripts (install:all, start:*, typecheck)
+│   ├── desktop/        # Electron app (bun.lock) — ML pipeline, SQLite, scanner, UI
+│   ├── mobile/         # Expo React Native app — ONNX Runtime Mobile, offline ML
+│   ├── web/            # Landing page — React + Vite
+│   ├── backend/        # Hono service — auth + update manifest
+│   ├── shared/         # picly-shared — shared config + TS types
+│   └── ml/             # picly-ml — shared face pipeline (detect/quality/embed)
+└── package.json        # npm workspaces + root scripts (install:all, start:*, typecheck)
 ```
 
 **Install / scripts:**
 
 ```bash
-npm install             # root: links mobile + packages/shared
-npm run start:mobile    # Expo (mobile/)
+npm install             # root: links all workspaces (postinstall syncs mobile models)
+npm run start:mobile    # Expo (packages/mobile)
 npm run build:shared    # build picly-shared → packages/shared/dist
+npm run build:ml        # build picly-ml → packages/ml/dist
 npm run typecheck       # runs each workspace's typecheck script
 ```
-
-> `desktop/`, `web/` and `backend/` are **not** in the npm workspaces — they use
-`bun` with their own `bun.lock` (install with `cd desktop && bun install`, etc.).
-Only `mobile` + `packages/shared` are npm-managed from the root.
 
 **`picly-shared`** is the single source of truth for pipeline numbers used by both
 apps: model names, detection thresholds (SCRFD 0.5, NMS 0.3, re-detect 80px),
 quality-gate thresholds, clustering linkage (0.45 production default), and DB/cache
-config. Build it with `cd packages/shared && npm run build` (outputs CJS + types to
-`dist/`, gitignored); `mobile` consumes it via the workspace symlink. Keep these
-numbers in sync when the desktop pipeline changes.
+config. Build it with `npm run build:shared` (outputs CJS + types to `dist/`,
+gitignored); `mobile` consumes it via the workspace symlink. Keep these numbers in
+sync when the desktop pipeline changes.
+
+**`picly-ml`** is the frozen detection/quality/embedding pipeline. Desktop wires it
+to `onnxruntime-node` + sharp; mobile wires it to `onnxruntime-react-native` via
+runtime adapters. Models live at the root `models/` — desktop reads them directly,
+mobile copies them into its bundle via `scripts/sync-models.mjs` (Metro skips
+gitignored files, so the bundle must stay inside the mobile package).
 
 ## Run the desktop app (local, no backend needed)
 
 ```bash
-cd desktop
+cd packages/desktop
 npm install          # postinstall compiles better-sqlite3 for host + Electron ABI
 npm run electron:dev # compile local services + run the app (needs a GUI session)
 ```
 
-> **Dev** reads the ML models from `~/.insightface/models` (override with `PICLY_MODELS_DIR`).
+> **Dev** reads the ML models from the root `models/` (override with `PICLY_MODELS_DIR`).
 > **Packaged** builds bundle the models inside the app (`Contents/Resources/models`) via
 > `electron:build` — a fresh install needs no manual model setup.
 > No Python, Docker, or backend is required for scan/search/browse — everything is local.
@@ -98,13 +103,13 @@ npm run electron:dev # compile local services + run the app (needs a GUI session
 ## Build & package (macOS)
 
 ```bash
-cd desktop
+cd packages/desktop
 npm run electron:build   # fetches ONNX models if missing, then electron-builder → dist/Picly-*.dmg
 ```
 
 - `scripts/fetch-models.mjs` downloads `buffalo_l` from GitHub releases and extracts
   **only** the two models Picly loads — `det_10g.onnx` (~17 MB) + `w600k_r50.onnx`
-  (~174 MB) — into `desktop/models/buffalo_l/` (gitignored, never committed).
+  (~174 MB) — into root `models/buffalo_l/` (gitignored, never committed).
 - electron-builder copies them via `extraResources` into `Contents/Resources/models`;
   the packaged app resolves them automatically (`config.ts` → `process.resourcesPath`).
 - CI (`.github/workflows/build.yml`) runs the same fetch step before building, so the
@@ -117,14 +122,14 @@ npm run electron:build   # fetches ONNX models if missing, then electron-builder
 The backend serves **auth** (register/login) and the **in-app update manifest**:
 
 ```bash
-cd backend
+cd packages/backend
 bun install
 bun run src/index.ts   # serves /auth/*, /app/update, /health
 ```
 
 Or via Docker: `docker compose up -d --build` (binds `127.0.0.1:9999`).
 
-**How the desktop app finds the backend** (`desktop/src/main/config.cjs`):
+**How the desktop app finds the backend** (`packages/desktop/src/main/config.cjs`):
 
 | Context | URL |
 |---|---|
@@ -147,7 +152,7 @@ build time. `PICLY_API_URL` always wins when set.
 
 ### Landing page (web)
 
-The landing page (`web/`) is a static React+Vite site (hero, features, how it
+The landing page (`packages/web/`) is a static React+Vite site (hero, features, how it
 works, privacy, CTA). It has **no backend dependency** — the download CTA links
 directly to GitHub Releases. Serve it via Docker:
 
@@ -155,13 +160,13 @@ directly to GitHub Releases. Serve it via Docker:
 docker compose up -d --build web   # nginx → http://127.0.0.1:8080
 ```
 
-- `web/Dockerfile` builds with bun, then serves the static `dist/` via nginx
-- `web/nginx.conf` — SPA fallback + aggressive caching for hashed assets
+- `packages/web/Dockerfile` builds with bun, then serves the static `dist/` via nginx
+- `packages/web/nginx.conf` — SPA fallback + aggressive caching for hashed assets
 - Bound to `127.0.0.1:8080` in `docker-compose.yml` (same as the backend)
 
 - Passwords hashed with argon2id (`Bun.password`), refresh tokens stored hashed + revocable
 - The update manifest is **public** — it only carries a version + GitHub release URL, and staying available matters more than being gated
-- The manifest (version/url/notes) lives in `backend/src/update.ts` — bump it when releasing
+- The manifest (version/url/notes) lives in `packages/backend/src/update.ts` — bump it when releasing
 
 ### Desktop auth (account is optional — local features work without it)
 
@@ -187,7 +192,7 @@ browser to keep the update path simple and safe.
 
 | Var | Default | Description |
 |---|---|---|
-| `PICLY_MODELS_DIR` | `~/.insightface/models` | ONNX model dir (`buffalo_l`) — dev; packaged app uses bundled `Contents/Resources/models` |
+| `PICLY_MODELS_DIR` | root `models/` | ONNX model dir (`buffalo_l` + `ediffiqa`) — dev; packaged app uses bundled `Contents/Resources/models` |
 | `JWT_SECRET` | (ephemeral) | JWT signing secret — **required in production** (`openssl rand -base64 32`) |
 | `DB_PATH` | `/data/picly.db` | Backend SQLite DB path |
 | `PORT` (backend) | `8000` | Backend listen port |
@@ -195,7 +200,7 @@ browser to keep the update path simple and safe.
 ## Desktop ML pipeline (Node / ONNX Runtime)
 
 The face pipeline (SCRFD `det_10g` detection + ArcFace `w600k_r50` embedding,
-`buffalo_l`) is ported to TypeScript under `desktop/src/main/ml/` — runs fully in
+`buffalo_l`) lives in `packages/ml/` (shared desktop + mobile) — runs fully in
 Node via `onnxruntime-node`, **no Python / Docker needed** for inference. It mirrors
 insightface's `FaceAnalysis` (det_size 640): letterbox → SCRFD decode + NMS →
 `estimate_norm` (exact skimage `_umeyama` port) → warp 112×112 → ArcFace → L2 norm.
@@ -203,7 +208,7 @@ insightface's `FaceAnalysis` (det_size 640): letterbox → SCRFD decode + NMS �
 Verified against the Python reference with golden fixtures:
 
 ```bash
-cd desktop && bun run verify:pipeline   # IoU ~0.999, cosSim ~0.9999, umeyama M diff ~1e-5
+cd packages/desktop && bun run verify:pipeline   # IoU ~0.999, cosSim ~0.9999, umeyama M diff ~1e-5
 ```
 
 - Fixtures: `docs/ml-parity/golden.json` (bbox/kps/M/embedding per face).
@@ -211,16 +216,16 @@ cd desktop && bun run verify:pipeline   # IoU ~0.999, cosSim ~0.9999, umeyama M 
   provenance — the desktop itself runs fully on ONNX and never needs Python):
   run `docs/ml-parity/gen_fixtures.py` in any insightface 0.7.3 + onnxruntime
   env (see script header for usage), then write the output to `docs/ml-parity/golden.json`.
-- Models are read from `~/.insightface/models` in dev (override with `PICLY_MODELS_DIR`);
+- Models are read from the root `models/` in dev (override with `PICLY_MODELS_DIR`);
   packaged builds bundle them under `Contents/Resources/models` (see Build & package).
-- Pipeline is config-driven (`desktop/src/main/ml/config.ts`) — switching to the
+- Pipeline is config-driven (`packages/ml/src/config.ts`) — switching to the
   lighter `buffalo_s` pack later = new model paths + regenerate fixtures, no code change.
 
 ### Local storage + scanner
 
 
 ```bash
-cd desktop
+cd packages/desktop
 bun run scan:test      # scan ~/picly-photos-local: dedup + search + self-match
 bun run cluster:test   # 6 LFW people x 4 photos: cluster purity + coverage
 bun run parity:cluster # dump assignments; diff vs docs/ml-parity/parity_cluster.py
@@ -247,7 +252,7 @@ The only backend touchpoints are **optional**: auth (login/register) and the
 in-app update banner — both degrade gracefully when the backend is unreachable.
 
 ```bash
-cd desktop
+cd packages/desktop
 bun run electron:dev   # compile local services + run the app (needs a GUI session)
 bun run abi:check      # headless: native modules + scan/search under Electron's Node
 ```
@@ -265,10 +270,10 @@ one binary.)
 
 ## Notes
 
-- Storage is fully local: SQLite under `desktop/data/` (gitignored) — thumbnails cached as 300px JPEG
+- Storage is fully local: SQLite under `packages/desktop/data/` (gitignored) — thumbnails cached as 300px JPEG
 - Face clustering: HAC average-linkage with cutoff `0.45` (see `CLUSTERING_CONFIG.mergeThreshold`); LOW-quality faces need `>= 0.6` to join a cluster
 - Drive handling is **desktop app responsibility**, not backend
-- Models: **dev** reads `~/.insightface/models/buffalo_l/` (override `PICLY_MODELS_DIR`);
+- Models: **dev** reads root `models/buffalo_l/` (override `PICLY_MODELS_DIR`);
   **packaged** apps ship them inside `Contents/Resources/models` — no manual setup needed
 
 ## License

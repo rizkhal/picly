@@ -7,7 +7,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: web/Dockerfile
+      dockerfile: packages/web/Dockerfile
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:80"
@@ -15,7 +15,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: packages/backend/Dockerfile
     restart: unless-stopped
     ports:
       - "127.0.0.1:9999:9999"

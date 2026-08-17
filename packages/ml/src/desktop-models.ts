@@ -2,10 +2,13 @@ import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 
 /**
- * Desktop model paths — Electron-aware, same resolution as the original
- * desktop/src/main/ml/config.ts. Kept in the ml package so the runtime
- * adapter is fully portable; the path string is what gets passed to the
- * node OrtBackend.
+ * Shared model paths — single source of truth at the monorepo root `models/`
+ * (used by both desktop and mobile). Resolution order:
+ *   1. PICLY_MODELS_DIR env override
+ *   2. Electron packaged app  → <resources>/models (bundled by electron-builder)
+ *   3. Dev/CLI                → <monorepo root>/models
+ * Kept in the ml package so the runtime adapter is fully portable; the path
+ * string is what gets passed to the node OrtBackend.
  */
 export function defaultModelsDir(): string {
   if (process.env.PICLY_MODELS_DIR) return process.env.PICLY_MODELS_DIR
@@ -20,7 +23,8 @@ export function defaultModelsDir(): string {
     // Not running inside Electron (CLI tests) — fall through.
   }
 
-  return path.join(require('node:os').homedir(), '.insightface', 'models')
+  // Compiled to packages/ml/dist/desktop-models.js → ../../../ = monorepo root.
+  return path.resolve(__dirname, '../../../models')
 }
 
 export function defaultDesktopModels(modelsDir?: string): { detModel: string; arcModel: string; qualityModel: string } {

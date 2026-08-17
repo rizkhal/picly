@@ -2,13 +2,13 @@
 """Clustering parity reference (any insightface 0.7.3 + onnxruntime env).
 
 Replicates the scan-time clustering (centroid running average, cosine
-threshold 0.6) over the same 24 LFW photos that desktop/scripts/parity-cluster.ts
+threshold 0.6) over the same 24 LFW photos that packages/desktop/scripts/parity-cluster.ts
 scans, using RAW-kps embeddings (no 2d106det refinement) so the Node and Python
 embeddings are identical. Prints "photo personIndex" per face.
 
 Usage:
   python3 parity_cluster.py > parity-py.txt
-  # then diff against desktop/data/parity-node.txt from `bun run parity:cluster`
+  # then diff against packages/desktop/data/parity-node.txt from `bun run parity:cluster`
 """
 import os
 import sys
