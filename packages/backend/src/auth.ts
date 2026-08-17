@@ -66,7 +66,7 @@ export const auth = new Hono()
 
 // --- Public endpoints (rate-limited) ---
 
-auth.post('/register', rateLimit(5, 15 * 60 * 1000), async (c) => {
+auth.post('/register', rateLimit(30, 15 * 60 * 1000), async (c) => {
   const body = await c.req.json().catch(() => null)
   const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : ''
   const password = typeof body?.password === 'string' ? body.password : ''
@@ -97,7 +97,7 @@ auth.post('/register', rateLimit(5, 15 * 60 * 1000), async (c) => {
   )
 })
 
-auth.post('/login', rateLimit(5, 15 * 60 * 1000), async (c) => {
+auth.post('/login', rateLimit(30, 15 * 60 * 1000), async (c) => {
   const body = await c.req.json().catch(() => null)
   const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : ''
   const password = typeof body?.password === 'string' ? body.password : ''
@@ -117,7 +117,7 @@ auth.post('/login', rateLimit(5, 15 * 60 * 1000), async (c) => {
   })
 })
 
-auth.post('/refresh', rateLimit(30, 60 * 1000), async (c) => {
+auth.post('/refresh', rateLimit(60, 60 * 1000), async (c) => {
   const body = await c.req.json().catch(() => null)
   const raw = typeof body?.refreshToken === 'string' ? body.refreshToken : ''
 

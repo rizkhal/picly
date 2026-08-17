@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 
 const AUTH_KEY = 'picly.auth.v1';
 
@@ -64,14 +65,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (!session) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let lastRefresh: number | null = null;
+    // Keep the LATEST refresh token without re-triggering this effect (the
+    // backend rotates tokens on every refresh, so depending on the token in
+    // the deps array would cause an endless refresh loop).
+    const tokenRef = { current: session.refreshToken };
 
     const refresh = async () => {
       try {
         const next = await api<AuthResponse>('/auth/refresh', {
           method: 'POST',
-          body: { refreshToken: session.refreshToken },
+          body: { refreshToken: tokenRef.current },
         });
-        setSession({
+        lastRefresh = Date.now();
+        tokenRef.current = next.refreshToken;
+        const updated: Session = {
           user: {
             id: next.user.id,
             email: next.user.email,
@@ -79,21 +87,41 @@ export function AuthProvider({ children }: PropsWithChildren) {
           },
           accessToken: next.accessToken,
           refreshToken: next.refreshToken,
-        });
-      } catch {
-        // Refresh failed — drop session, user signs in again.
-        await AsyncStorage.removeItem(AUTH_KEY);
-        setSession(null);
+        };
+        setSession(updated);
+        // Persist the rotated tokens so a kill/restart restores the LATEST pair
+        // (the backend revoked the previous refresh token on rotation).
+        await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(updated));
+      } catch (err) {
+        // Network failure (backend unreachable) — keep the session so the user
+        // stays logged in; we retry on next foreground. Only drop the session
+        // when the backend explicitly rejects the token (401).
+        const isAuthFailure = err instanceof ApiError && err.status === 401;
+        if (isAuthFailure) {
+          await AsyncStorage.removeItem(AUTH_KEY);
+          setSession(null);
+        }
       }
     };
 
     // Fire once shortly after mount (covers stale access token from last run).
     timer = setTimeout(refresh, 1000);
 
+    // Refresh again whenever the app returns to the foreground (catches
+    // long backgrounded sessions and retries failed refreshes). Skip if we
+    // just refreshed (e.g. mount timer already fired).
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && (lastRefresh === null || Date.now() - lastRefresh > 1000)) refresh();
+    });
+
     return () => {
       if (timer) clearTimeout(timer);
+      sub.remove();
     };
-  }, [session?.refreshToken]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Run once per signed-in user — NOT on token rotation (token changes would
+    // restart the effect and cause a refresh loop). Restore + login both set
+    // session.user.id, which is stable across refreshes.
+  }, [session?.user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const persist = useCallback(async (next: Session | null) => {
     setSession(next);

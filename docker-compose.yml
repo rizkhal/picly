@@ -10,7 +10,7 @@ services:
       dockerfile: packages/web/Dockerfile
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8080:80"
+      - "127.0.0.1:8082:80"
 
   backend:
     build:
@@ -18,7 +18,7 @@ services:
       dockerfile: packages/backend/Dockerfile
     restart: unless-stopped
     ports:
-      - "127.0.0.1:9999:9999"
+      - "9999:9999"
     environment:
       NODE_ENV: production
       # JWT signing secret — REQUIRED in production. Generate with:
