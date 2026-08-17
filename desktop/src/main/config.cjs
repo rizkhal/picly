@@ -6,7 +6,7 @@
 //   - Packaged apps (electron-builder) default to the production backend so
 //     end users connect without any setup.
 //   - `electron .` / `bun run dev` (process.defaultApp) defaults to the local
-//     Docker backend on localhost:8000.
+//     Docker backend on localhost:9999.
 // Detect packaged app reliably.
 // - `electron .` / `bun run dev` → process.defaultApp === true → dev.
 // - Packaged apps → defaultApp undefined AND (under Electron) app.isPackaged.
@@ -29,7 +29,7 @@ const PRODUCTION_API_URL = 'https://api.picly.rizkal.wtf';
 function getApiBase() {
   if (process.env.PICLY_API_URL) return process.env.PICLY_API_URL;
   if (isPackaged) return PRODUCTION_API_URL;
-  return 'http://localhost:8000';
+  return 'http://localhost:9999';
 }
 
 module.exports = {
