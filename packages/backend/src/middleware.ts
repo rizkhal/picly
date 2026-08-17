@@ -17,6 +17,11 @@ const buckets = new Map<string, Bucket>()
 
 export function rateLimit(limit: number, windowMs: number) {
   return async (c: Context, next: Next) => {
+    // Skip rate limiting entirely outside production (dev builds, local testing).
+    if (process.env.NODE_ENV !== 'production') {
+      return next()
+    }
+
     const info = getConnInfo(c)
     const key = info.remote.address ?? 'unknown'
     const now = Date.now()
