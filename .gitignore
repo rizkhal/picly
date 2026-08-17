@@ -38,6 +38,7 @@ Thumbs.db
 /tmp/
 uploads/
 *.db
+backend/data/
 
 # Local sample data
 /photos/

@@ -1,11 +1,26 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { api } from '../api/client';
 
 const AUTH_KEY = 'picly.auth.v1';
 
 export interface AuthUser {
+  id: string;
   email: string;
   name: string;
+}
+
+interface Session {
+  user: AuthUser;
+  accessToken: string;
+  refreshToken: string;
+}
+
+interface AuthResponse {
+  user: { id: string; email: string };
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
 }
 
 interface AuthContextValue {
@@ -19,20 +34,21 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 /**
- * Local-first auth stub. No network calls — the account lives in AsyncStorage
- * only, matching Picly's privacy promise. Swap the internals for the real
- * backend client when accounts go online.
+ * Auth against the Picly backend (Hono + Bun). Session (user + tokens) is
+ * persisted to AsyncStorage; the access token is refreshed automatically on
+ * app start and on expiry.
  */
 export function AuthProvider({ children }: PropsWithChildren) {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
 
+  // Restore session from storage on mount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(AUTH_KEY);
-        if (!cancelled && raw) setUser(JSON.parse(raw) as AuthUser);
+        if (!cancelled && raw) setSession(JSON.parse(raw) as Session);
       } catch {
         // Corrupt/absent session — treat as signed out.
       } finally {
@@ -44,8 +60,43 @@ export function AuthProvider({ children }: PropsWithChildren) {
     };
   }, []);
 
-  const persist = useCallback(async (next: AuthUser | null) => {
-    setUser(next);
+  // Refresh the access token when the app foregrounds or the token expires.
+  useEffect(() => {
+    if (!session) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const refresh = async () => {
+      try {
+        const next = await api<AuthResponse>('/auth/refresh', {
+          method: 'POST',
+          body: { refreshToken: session.refreshToken },
+        });
+        setSession({
+          user: {
+            id: next.user.id,
+            email: next.user.email,
+            name: next.user.email.split('@')[0] || 'Picly user',
+          },
+          accessToken: next.accessToken,
+          refreshToken: next.refreshToken,
+        });
+      } catch {
+        // Refresh failed — drop session, user signs in again.
+        await AsyncStorage.removeItem(AUTH_KEY);
+        setSession(null);
+      }
+    };
+
+    // Fire once shortly after mount (covers stale access token from last run).
+    timer = setTimeout(refresh, 1000);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [session?.refreshToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const persist = useCallback(async (next: Session | null) => {
+    setSession(next);
     if (next) {
       await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(next));
     } else {
@@ -53,32 +104,54 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, []);
 
-  const login = useCallback(
-    async (email: string, password: string) => {
-      // MOCK — replace with real auth request. Any non-empty credentials pass.
-      if (!email.trim() || !password) throw new Error('Email and password are required');
-      await persist({ email: email.trim().toLowerCase(), name: email.trim().split('@')[0] || 'Picly user' });
+  const handleAuthResponse = useCallback(
+    async (res: AuthResponse): Promise<void> => {
+      const user: AuthUser = {
+        id: res.user.id,
+        email: res.user.email,
+        name: res.user.email.split('@')[0] || 'Picly user',
+      };
+      await persist({ user, accessToken: res.accessToken, refreshToken: res.refreshToken });
     },
     [persist],
+  );
+
+  const login = useCallback(
+    async (email: string, password: string) => {
+      if (!email.trim() || !password) throw new Error('Email and password are required');
+      const res = await api<AuthResponse>('/auth/login', { method: 'POST', body: { email, password } });
+      await handleAuthResponse(res);
+    },
+    [handleAuthResponse],
   );
 
   const register = useCallback(
     async (name: string, email: string, password: string) => {
-      // MOCK — replace with real registration request.
       if (!name.trim() || !email.trim() || !password) throw new Error('All fields are required');
       if (password.length < 6) throw new Error('Password must be at least 6 characters');
-      await persist({ email: email.trim().toLowerCase(), name: name.trim() });
+      const res = await api<AuthResponse>('/auth/register', {
+        method: 'POST',
+        body: { name, email, password },
+      });
+      await handleAuthResponse(res);
     },
-    [persist],
+    [handleAuthResponse],
   );
 
   const logout = useCallback(async () => {
+    if (session?.refreshToken) {
+      try {
+        await api('/auth/logout', { method: 'POST', body: { refreshToken: session.refreshToken } });
+      } catch {
+        // Best-effort — always clear local session.
+      }
+    }
     await persist(null);
-  }, [persist]);
+  }, [session?.refreshToken, persist]);
 
   const value = useMemo(
-    () => ({ user, ready, login, register, logout }),
-    [user, ready, login, register, logout],
+    () => ({ user: session?.user ?? null, ready, login, register, logout }),
+    [session, ready, login, register, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
