@@ -2,13 +2,38 @@
   --bg: #0f0f0f;
   --surface: #1a1a1a;
   --surface-2: #222;
+  --surface-hover: #2a2a2a;
   --border: #2a2a2a;
+  --border-strong: #3a3a3a;
   --text: #e5e5e5;
   --text-muted: #888;
   --accent: #3b82f6;
   --accent-hover: #2563eb;
   --danger: #ef4444;
   --success: #22c55e;
+  --overlay: rgba(0, 0, 0, 0.55);
+  --overlay-strong: rgba(0, 0, 0, 0.85);
+  color-scheme: dark;
+}
+
+/* Light theme — all components use the CSS variables above, so overriding the
+   palette here is enough to switch the whole app (set via data-theme). */
+[data-theme='light'] {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #eceef1;
+  --surface-hover: #e2e5ea;
+  --border: #d9dde3;
+  --border-strong: #c3c9d2;
+  --text: #1c1f24;
+  --text-muted: #6b7280;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --danger: #dc2626;
+  --success: #16a34a;
+  --overlay: rgba(15, 15, 15, 0.55);
+  --overlay-strong: rgba(15, 15, 15, 0.85);
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -215,7 +240,7 @@ html, body, #root {
 .nav-item .disk-info { min-width: 0; }
 .nav-item .disk-info .disk-space { margin-top: 0; }
 /* Slightly brighter than the default muted for folder row metadata */
-.nav-item .disk-info .disk-space { color: #9ca3af; }
+.nav-item .disk-info .disk-space { color: var(--text-muted); }
 
 .sidebar-divider {
   height: 1px;
@@ -430,7 +455,7 @@ html, body, #root {
 }
 
 .settings-gear-btn:hover {
-  background: var(--surface-hover, #2a2a2a);
+  background: var(--surface-hover);
 }
 
 .settings-gear-label {
@@ -554,7 +579,7 @@ html, body, #root {
 }
 
 .manage-stat:hover {
-  border-color: var(--border-strong, var(--accent));
+  border-color: var(--border-strong);
 }
 
 .manage-stat-icon {
@@ -886,6 +911,102 @@ html, body, #root {
   flex-shrink: 0;
 }
 
+/* Auth modal — uses theme variables so it works in dark and light */
+.auth-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.auth-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  width: 340px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.auth-modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.auth-modal-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.auth-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.auth-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 14px;
+  margin-bottom: 12px;
+  outline: none;
+}
+
+.auth-input:focus {
+  border-color: var(--accent);
+}
+
+.auth-error {
+  font-size: 12px;
+  color: var(--danger);
+  margin-bottom: 10px;
+}
+
+.auth-submit {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 1;
+}
+
+.auth-submit:hover {
+  background: var(--accent-hover);
+}
+
+.auth-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.auth-switch {
+  margin-top: 12px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.auth-switch span {
+  color: var(--accent);
+  cursor: pointer;
+}
+
 /* Toggle switch — Settings (face filter) */
 .toggle-btn {
   width: 40px;
@@ -915,6 +1036,42 @@ html, body, #root {
 .toggle-btn.on .toggle-knob {
   transform: translateX(18px);
   background: #fff;
+}
+
+/* Theme picker — segmented control (System / Dark / Light) */
+.theme-options {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.theme-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.theme-option:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.theme-option.active {
+  background: var(--accent);
+  color: #fff;
 }
 
 .settings-stats {
@@ -1159,7 +1316,7 @@ html, body, #root {
   position: absolute;
   top: 8px;
   right: 8px;
-  background: rgba(0,0,0,0.7);
+  background: var(--overlay);
   color: var(--success);
   padding: 2px 8px;
   border-radius: 4px;
@@ -1179,7 +1336,7 @@ html, body, #root {
 .search-summary-title {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted, #9aa4b2);
+  color: var(--text-muted);
 }
 
 .search-summary-persons {
@@ -1202,7 +1359,7 @@ html, body, #root {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.85);
+  background: var(--overlay-strong);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1860,19 +2017,16 @@ html, body, #root {
   top: 10px;
   left: 10px;
   z-index: 3;
-  background: rgba(0, 0, 0, 0.65);
+  background: var(--overlay);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 3px 10px;
   font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
 }
 
 .photo-zoom-badge:hover {
-  background: rgba(0, 0, 0, 0.85);
+  background: var(--overlay-strong);
 }
 
 /* Notice shown when the original source file is missing — the preview falls
@@ -1885,7 +2039,7 @@ html, body, #root {
   margin: 0 auto;
   padding: 8px 14px;
   max-width: 420px;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--overlay);
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 12px;
@@ -2136,10 +2290,9 @@ html, body, #root {
   font-weight: 700;
   padding: 1px 5px;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.65);
-  color: #9ca3af;
+  background: var(--overlay);
+  color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 .pm-face-quality.q-high {
   color: #4ade80;
@@ -2377,7 +2530,7 @@ html, body, #root {
 }
 
 .scan-dismiss-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
   color: var(--text);
 }
 
@@ -2409,7 +2562,7 @@ html, body, #root {
 
 .nav-item:hover .row-action-btn { display: inline-flex; }
 .nav-item .row-action-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
   color: var(--text);
 }
 /* Rescan (refresh) button — orange tint, distinct from delete */
@@ -2711,15 +2864,12 @@ html, body, #root {
   bottom: 8px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.75);
+  background: var(--overlay-strong);
   color: #fff;
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 5px 12px;
   font-size: 12px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s;
 }
 
 .trash-card:hover .trash-restore-btn { opacity: 1; }

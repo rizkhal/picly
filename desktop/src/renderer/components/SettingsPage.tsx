@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { User, HardDrives, FaceMask, Brain, Info } from '@phosphor-icons/react'
+import { User, HardDrives, FaceMask, Brain, Info, Monitor, Sun, Moon } from '@phosphor-icons/react'
 import type { AuthStatus, LocalModels, UpdateInfo } from '../types'
+import type { ThemeMode } from '../hooks/useTheme'
 import * as ipc from '../lib/electron'
 
 type SettingsPageProps = {
@@ -14,6 +15,8 @@ type SettingsPageProps = {
   onClose: () => void
   showSingletons: boolean
   onToggleShowSingletons: () => void
+  theme: ThemeMode
+  onThemeChange: (theme: ThemeMode) => void
   section: SettingsSectionId
   onSectionChange: (section: SettingsSectionId) => void
 }
@@ -25,7 +28,7 @@ type StoreStats = {
   folders: number
 }
 
-export type SettingsSectionId = 'account' | 'storage' | 'faces' | 'models' | 'about'
+export type SettingsSectionId = 'appearance' | 'account' | 'storage' | 'faces' | 'models' | 'about'
 
 function ModelRow({ title, desc, installed, latest }: { title: string; desc: string; installed: string | null; latest?: string | null }) {
   const hasNewer = !!latest && latest !== installed
@@ -44,6 +47,7 @@ function ModelRow({ title, desc, installed, latest }: { title: string; desc: str
 }
 
 const MENU: Array<{ id: SettingsSectionId; label: string; icon: React.ReactNode }> = [
+  { id: 'appearance', label: 'Appearance', icon: <Monitor size={16} /> },
   { id: 'account', label: 'Account', icon: <User size={16} /> },
   { id: 'storage', label: 'Storage', icon: <HardDrives size={16} /> },
   { id: 'faces', label: 'Faces', icon: <FaceMask size={16} /> },
@@ -51,7 +55,7 @@ const MENU: Array<{ id: SettingsSectionId; label: string; icon: React.ReactNode 
   { id: 'about', label: 'About', icon: <Info size={16} /> },
 ]
 
-export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, updateChecking, onCheckUpdate, onOpenUpdate, onClose, showSingletons, onToggleShowSingletons, section, onSectionChange }: SettingsPageProps) {
+export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, updateChecking, onCheckUpdate, onOpenUpdate, onClose, showSingletons, onToggleShowSingletons, theme, onThemeChange, section, onSectionChange }: SettingsPageProps) {
   const [stats, setStats] = useState<StoreStats | null>(null)
   const [localModels, setLocalModels] = useState<LocalModels | null>(null)
 
@@ -84,6 +88,29 @@ export function SettingsPage({ authStatus, onLogout, onOpenAuth, updateInfo, upd
 
         {/* Right: active section content */}
         <div className="settings-content">
+          {section === 'appearance' && (
+            <section className="settings-section">
+              <div className="settings-section-title">Appearance</div>
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <div className="settings-row-label">Theme</div>
+                  <div className="settings-row-hint">Follow the system setting or force a dark / light appearance.</div>
+                </div>
+                <div className="theme-options" role="radiogroup" aria-label="Theme">
+                  <button className={`theme-option${theme === 'system' ? ' active' : ''}`} role="radio" aria-checked={theme === 'system'} onClick={() => onThemeChange('system')}>
+                    <Monitor size={14} /> System
+                  </button>
+                  <button className={`theme-option${theme === 'dark' ? ' active' : ''}`} role="radio" aria-checked={theme === 'dark'} onClick={() => onThemeChange('dark')}>
+                    <Moon size={14} /> Dark
+                  </button>
+                  <button className={`theme-option${theme === 'light' ? ' active' : ''}`} role="radio" aria-checked={theme === 'light'} onClick={() => onThemeChange('light')}>
+                    <Sun size={14} /> Light
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
+
           {section === 'account' && (
             <section className="settings-section">
               <div className="settings-section-title">Account</div>

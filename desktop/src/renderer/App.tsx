@@ -13,6 +13,7 @@ import { SettingsPage, type SettingsSectionId } from './components/SettingsPage'
 import { ManagePhotosPage } from './components/ManagePhotosPage'
 import { PersonManager } from './components/PersonManager'
 import { ScanProgressPage } from './components/ScanProgressPage'
+import { useTheme } from './hooks/useTheme'
 
 // Main-panel pages. Persisted so a reload stays on the same page the user left.
 type PageId = 'library' | 'settings' | 'manage' | 'progress'
@@ -51,6 +52,9 @@ export default function App() {
     submitAuth, handleLogout, checkForUpdate, openUpdatePage,
   } = auth
 
+  // Appearance: system / dark / light, persisted in localStorage.
+  const { theme, setTheme } = useTheme()
+
   // Selection state
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null)
@@ -84,7 +88,7 @@ export default function App() {
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>(() => {
     try {
       const v = localStorage.getItem(SETTINGS_SECTION_KEY)
-      return v === 'account' || v === 'storage' || v === 'faces' || v === 'models' || v === 'about' ? v : 'account'
+      return v === 'appearance' || v === 'account' || v === 'storage' || v === 'faces' || v === 'models' || v === 'about' ? v : 'account'
     } catch {
       return 'account'
     }
@@ -446,6 +450,8 @@ export default function App() {
             onClose={() => setPage('library')}
             showSingletons={showSingletons}
             onToggleShowSingletons={() => { toggleShowSingletons(); loadPersons() }}
+            theme={theme}
+            onThemeChange={setTheme}
             section={settingsSection}
             onSectionChange={setSettingsSection}
           />
