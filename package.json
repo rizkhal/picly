@@ -21,6 +21,8 @@
     "clean:all": "rm -rf node_modules packages/backend/node_modules packages/desktop/node_modules packages/mobile/node_modules packages/web/node_modules packages/shared/node_modules packages/ml/node_modules"
   },
   "dependencies": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
     "ws": "8"
   },
   "onnxruntimeExtensionsEnabled": "true"

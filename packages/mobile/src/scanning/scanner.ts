@@ -12,9 +12,13 @@
 // to a JS Worker (RN Workers run on a separate thread).
 
 import type { DetectedFace } from '../ml';
-import { analyzePhoto } from '../ml';
+import { analyzePhoto, decodePhoto } from '../ml';
 import { addPhotoWithFaces, applyClusters, type AddFaceInput, type AddPhotoInput } from '../db/store';
 import { clusterFaces, type ClusterFace, CLUSTER_LINKAGE_THRESHOLD } from '../db/cluster';
+
+// Re-exported so screens can get oriented decode dims without importing ml directly.
+export { decodePhoto };
+export type { DetectedFace };
 
 export type ScanStage = 'decoding' | 'detecting' | 'embedding' | 'clustering';
 
@@ -66,7 +70,9 @@ function emit(
  */
 export async function scanSinglePhoto(photo: ScanPhotoItem): Promise<{ faces: number; error?: string }> {
   try {
-    const detected = await analyzePhoto(photo.uri);
+    // Decode once so bbox coords + stored dimensions share ONE oriented space
+    // (decode applies EXIF rotation; media.width/height may not match it).
+    const { detected, width, height } = await analyzePhoto(photo.uri);
     const addFaces: AddFaceInput[] = detected.map((f, i) => ({
       id: `${photo.id}-f${i}-${Date.now().toString(36)}`,
       x1: Math.round(f.bbox[0]),
@@ -83,8 +89,8 @@ export async function scanSinglePhoto(photo: ScanPhotoItem): Promise<{ faces: nu
         id: photo.id,
         assetId: photo.id,
         uri: photo.uri,
-        width: photo.width,
-        height: photo.height,
+        width,
+        height,
       } satisfies AddPhotoInput,
       addFaces,
     );
@@ -125,17 +131,18 @@ export async function scanPhotos(photos: ScanPhotoItem[], options: ScanOptions =
       errors,
     });
     try {
-      const faces: DetectedFace[] = await analyzePhoto(photo.uri);
+      // Decode once; store bbox + dims in the SAME oriented space as the UI.
+      const { detected, width, height } = await analyzePhoto(photo.uri);
       emit(onProgress, {
         total: photos.length,
         processed,
         currentFile: photo.uri,
-        stage: faces.some((f) => f.embedding) ? 'embedding' : 'detecting',
-        photoFaces: faces.length,
+        stage: detected.some((f) => f.embedding) ? 'embedding' : 'detecting',
+        photoFaces: detected.length,
         errors,
       });
 
-      const addFaces: AddFaceInput[] = faces.map((f, i) => ({
+      const addFaces: AddFaceInput[] = detected.map((f, i) => ({
         id: `${photoId}-f${i}-${Date.now().toString(36)}`,
         x1: Math.round(f.bbox[0]),
         y1: Math.round(f.bbox[1]),
@@ -151,8 +158,8 @@ export async function scanPhotos(photos: ScanPhotoItem[], options: ScanOptions =
           id: photoId,
           assetId: photo.id,
           uri: photo.uri,
-          width: photo.width,
-          height: photo.height,
+          width,
+          height,
         } satisfies AddPhotoInput,
         addFaces,
       );
@@ -221,4 +228,31 @@ async function allClusterFaces(): Promise<ClusterFace[]> {
     embedding: r.embedding ? blobToEmbedding(r.embedding) : null,
     quality: (r.face_quality ?? 'medium') as ClusterFace['quality'],
   }));
+}
+
+/**
+ * Ensure every scanned face is clustered into persons.
+ *
+ * Faces scanned via the photo-detail path (scanSinglePhoto) are stored with
+ * person_id NULL and never run clustering, so the People tab would stay empty
+ * even after a successful scan. This runs the same offline HAC as scanPhotos
+ * and is safe to call repeatedly: applyClusters clears person links, recreates
+ * persons from clusters, and reassigns members (idempotent).
+ *
+ * Returns the number of persons created, or 0 when there is nothing to cluster.
+ */
+export async function ensureClustered(): Promise<number> {
+  const { getDb } = await import('../db');
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM faces f
+     WHERE f.person_id IS NULL AND f.embedding IS NOT NULL`,
+  );
+  if (!row || row.n === 0) return 0;
+  const pool = await allClusterFaces();
+  const result = clusterFaces(pool, CLUSTER_LINKAGE_THRESHOLD);
+  if (result.length > 0) {
+    await applyClusters(result);
+  }
+  return result.length;
 }

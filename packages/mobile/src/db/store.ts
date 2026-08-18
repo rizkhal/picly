@@ -41,6 +41,10 @@ const PERSON_SELECT = `
   LEFT JOIN faces f ON f.person_id = p.id
   WHERE (f.id IS NULL OR f.low_quality = 0)
   GROUP BY p.id
+`;
+
+const PERSON_SELECT_ORDERED = `
+  ${PERSON_SELECT}
   ORDER BY p.updated_at DESC
 `;
 
@@ -52,25 +56,22 @@ const PERSON_SELECT = `
 export async function listPersons(): Promise<Person[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<PersonRow>(
-    `SELECT p.id, p.name, p.centroid, p.avatar_path,
-            COUNT(DISTINCT f.id) AS face_count,
-            COUNT(DISTINCT f.photo_id) AS photo_count,
-            COALESCE(AVG(f.quality_score), 0) AS avg_quality
-     FROM persons p
-     LEFT JOIN faces f ON f.person_id = p.id
-     WHERE (f.id IS NULL OR f.low_quality = 0)
-     GROUP BY p.id
-     ORDER BY p.updated_at DESC`,
+    `${PERSON_SELECT_ORDERED}`,
   );
   const avatars = await representativeAvatars();
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    avatarUri: r.avatar_path ?? avatars.get(r.id) ?? '',
-    faceCount: r.face_count,
-    photoCount: r.photo_count,
-    quality: tierFromScore(r.avg_quality),
-  }));
+  const chosen = await chosenAvatarUris();
+  return rows.map((r) => {
+    const chosenUri = r.avatar_path ? chosen.get(r.avatar_path) : undefined;
+    return {
+      id: r.id,
+      name: r.name,
+      avatarUri: chosenUri ?? avatars.get(r.id) ?? '',
+      avatarFaceId: r.avatar_path,
+      faceCount: r.face_count,
+      photoCount: r.photo_count,
+      quality: tierFromScore(r.avg_quality),
+    };
+  });
 }
 
 /** Representative avatar uri per person (best-quality face crop row -> photo uri). */
@@ -92,10 +93,31 @@ async function representativeAvatars(): Promise<Map<string, string>> {
   return out;
 }
 
+/** Uri per chosen avatar face id (avatar_path = face id on mobile). */
+async function chosenAvatarUris(): Promise<Map<string, string>> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ face_id: string; uri: string }>(
+    `SELECT f.id AS face_id, ph.uri AS uri
+     FROM faces f JOIN photos ph ON ph.id = f.photo_id
+     WHERE f.id IN (SELECT avatar_path FROM persons WHERE avatar_path IS NOT NULL)`,
+  );
+  return new Map(rows.map((r) => [r.face_id, r.uri]));
+}
+
 /** One person + their faces (with photo uris for thumbnails). */
 export async function getPerson(personId: string): Promise<{ person: Person; faces: Face[] } | null> {
   const db = await getDb();
-  const person = await db.getFirstAsync<PersonRow>(`${PERSON_SELECT} HAVING p.id = ?`, personId);
+  const person = await db.getFirstAsync<PersonRow>(
+    `SELECT p.id, p.name, p.centroid, p.avatar_path,
+            COUNT(DISTINCT f.id) AS face_count,
+            COUNT(DISTINCT f.photo_id) AS photo_count,
+            COALESCE(AVG(f.quality_score), 0) AS avg_quality
+     FROM persons p
+     LEFT JOIN faces f ON f.person_id = p.id
+     WHERE p.id = ? AND (f.id IS NULL OR f.low_quality = 0)
+     GROUP BY p.id`,
+    personId,
+  );
   if (!person) return null;
 
   const faceRows = await db.getAllAsync<FaceRow>(
@@ -106,22 +128,46 @@ export async function getPerson(personId: string): Promise<{ person: Person; fac
     personId,
   );
 
-  const avatarUri =
-    person.avatar_path ?? faceRows[0]?.id
-      ? representativeAvatar(db, personId)
-      : '';
+  // avatar_path = chosen avatar FACE id; fall back to best-quality face.
+  let avatarUri = '';
+  if (person.avatar_path) {
+    const chosenRow = await db.getFirstAsync<{ uri: string }>(
+      `SELECT ph.uri AS uri
+       FROM faces f JOIN photos ph ON ph.id = f.photo_id
+       WHERE f.id = ?`,
+      person.avatar_path,
+    );
+    avatarUri = chosenRow?.uri ?? '';
+  }
+  if (!avatarUri) {
+    avatarUri = faceRows[0]?.id ? await representativeAvatar(db, personId) : '';
+  }
 
   return {
     person: {
       id: person.id,
       name: person.name,
-      avatarUri: (await avatarUri) ?? person.avatar_path ?? '',
+      avatarUri,
+      avatarFaceId: person.avatar_path,
       faceCount: person.face_count,
       photoCount: person.photo_count,
       quality: tierFromScore(person.avg_quality),
     },
     faces: faceRows.map(rowToFace),
   };
+}
+
+/**
+ * Choose which face is the person's avatar (preview in People grid).
+ * Pass null to go back to auto (best-quality face).
+ */
+export async function setPersonAvatar(personId: string, faceId: string | null): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE persons SET avatar_path = ?, updated_at = datetime('now') WHERE id = ?`,
+    faceId,
+    personId,
+  );
 }
 
 /** Best-quality face row's photo uri for a person (fallback avatar). */
@@ -183,6 +229,9 @@ export async function getPhoto(photoId: string): Promise<Photo | null> {
   if (!row) return null;
 
   const faces = await getFacesForPhoto(db, photoId);
+  const w = row.width ?? 0;
+  const h = row.height ?? 0;
+  const oriented = w > 0 && h > 0;
 
   return {
     id: row.id,
@@ -191,7 +240,7 @@ export async function getPhoto(photoId: string): Promise<Photo | null> {
     width: row.width ?? 0,
     height: row.height ?? 0,
     createdAt: Date.parse(row.created_at) || Date.now(),
-    faces,
+    faces: oriented ? faces.map((f) => normalizeFace(f, w, h)) : faces,
     exists: true,
   };
 }
@@ -210,6 +259,9 @@ export async function getPhotoByAssetId(assetId: string): Promise<Photo | null> 
   if (!row) return null;
 
   const faces = await getFacesForPhoto(db, row.id);
+  const w = row.width ?? 0;
+  const h = row.height ?? 0;
+  const oriented = w > 0 && h > 0;
 
   return {
     id: row.id,
@@ -218,7 +270,7 @@ export async function getPhotoByAssetId(assetId: string): Promise<Photo | null> 
     width: row.width ?? 0,
     height: row.height ?? 0,
     createdAt: Date.parse(row.created_at) || Date.now(),
-    faces,
+    faces: oriented ? faces.map((f) => normalizeFace(f, w, h)) : faces,
     exists: true,
   };
 }
@@ -249,7 +301,18 @@ export async function listPersonFaces(personId: string): Promise<Face[]> {
      WHERE f.person_id = ? ORDER BY f.quality_score DESC`,
     personId,
   );
-  return rows.map(rowToFace);
+  // Faces are pixel coords here (rowToFace) — normalize against the stored
+  // (EXIF-oriented) photo dims so the viewer overlay aligns with the <Image>.
+  const dims = new Map<string, { w: number; h: number }>();
+  const photoRows = await db.getAllAsync<{ id: string; width: number | null; height: number | null }>(
+    `SELECT id, width, height FROM photos WHERE deleted_at IS NULL`,
+  );
+  for (const r of photoRows) if (r.width && r.height) dims.set(r.id, { w: r.width, h: r.height });
+  return rows.map((r) => {
+    const d = dims.get(r.photo_id);
+    if (!d) return rowToFace(r);
+    return normalizeFace(rowToFace(r), d.w, d.h);
+  });
 }
 
 /** Unassigned faces (person_id NULL) — shown in the PhotoDetail sheet. */
@@ -364,6 +427,48 @@ export async function librarySummary(): Promise<{ photos: number; faces: number;
   };
 }
 
+// ------------------------------------------------------------------ edit
+
+/** All person names (for the assign-to list in face edit sheets). */
+export async function listPersonNames(): Promise<string[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ name: string }>(`SELECT name FROM persons ORDER BY name`);
+  return rows.map((r) => r.name);
+}
+
+/** Rename a person. Returns the new name (falls back to the old when blank). */
+export async function renamePerson(personId: string, name: string): Promise<string> {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    const db = await getDb();
+    const row = await db.getFirstAsync<{ name: string }>(`SELECT name FROM persons WHERE id = ?`, personId);
+    return row?.name ?? 'Person';
+  }
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE persons SET name = ?, updated_at = datetime('now') WHERE id = ?`,
+    trimmed,
+    personId,
+  );
+  return trimmed;
+}
+
+/**
+ * Move a face to another person, or unassign (personId = null).
+ * When the target person has no members after the move and isn't manually
+ * kept, it's left alone — UI handles empty-person cleanup elsewhere.
+ */
+export async function setFacePerson(faceId: string, personId: string | null): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(`UPDATE faces SET person_id = ? WHERE id = ?`, personId, faceId);
+  if (personId) {
+    await db.runAsync(
+      `UPDATE persons SET updated_at = datetime('now') WHERE id = ?`,
+      personId,
+    );
+  }
+}
+
 // ------------------------------------------------------------------ utils
 
 function rowToFace(r: FaceRow): Face {
@@ -377,6 +482,19 @@ function rowToFace(r: FaceRow): Face {
     box: { x: r.x1, y: r.y1, w, h }, // pixel coords — caller normalizes
     thumbnailUri: r.photo_uri,
     personId: r.person_id,
+  };
+}
+
+/** Convert a pixel-box face to 0..1 normalized (stored dims are EXIF-oriented). */
+function normalizeFace(f: Face, w: number, h: number): Face {
+  return {
+    ...f,
+    box: {
+      x: f.box.x / w,
+      y: f.box.y / h,
+      w: f.box.w / w,
+      h: f.box.h / h,
+    },
   };
 }
 

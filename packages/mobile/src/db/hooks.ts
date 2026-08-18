@@ -1,6 +1,7 @@
 // Small data hooks used across screens — keep query logic out of components.
 
 import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import type { Face, Person, Photo } from '../types';
 import { getPerson, listPersonFaces, listPersons, listPhotos, getPhoto, listUnassignedFaces } from '../db/store';
 
@@ -17,9 +18,13 @@ export function usePersons() {
     }
   }, []);
 
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  // Reload every time the screen regains focus (e.g. going back from a detail
+  // screen after renaming a person), not only on first mount.
+  useFocusEffect(
+    useCallback(() => {
+      reload();
+    }, [reload]),
+  );
 
   return { persons, loading, reload };
 }

@@ -8,7 +8,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { X } from 'phosphor-react-native';
+import { ArrowLeft, CheckCircle, X } from 'phosphor-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Face } from '../../types';
 import { colors, radius, spacing } from '../../theme';
@@ -25,6 +25,8 @@ interface Props {
   onRename: (name: string) => void;
   onUnassign: () => void;
   onAssign: (personName: string) => void;
+  /** Optional — when provided shows a "Set as avatar" action (person edit). */
+  onSetAvatar?: () => void;
 }
 
 /**
@@ -41,6 +43,7 @@ export function FaceSheet({
   onRename,
   onUnassign,
   onAssign,
+  onSetAvatar,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState('');
@@ -79,23 +82,32 @@ export function FaceSheet({
           </View>
 
           <Text style={styles.sectionLabel}>ASSIGN TO</Text>
-          <View style={styles.peopleList}>
-            {peopleNames.map((name) => (
-              <Pressable
-                key={name}
-                style={styles.personRow}
-                onPress={() => onAssign(name)}
-              >
-                <View style={styles.avatar} />
-                <Text style={styles.personName}>{name}</Text>
-                <Text style={styles.assignAction}>Assign</Text>
-              </Pressable>
-            ))}
-          </View>
+          {peopleNames.length > 0 && (
+            <View style={styles.peopleList}>
+              {peopleNames.map((name) => (
+                <Pressable
+                  key={name}
+                  style={styles.personRow}
+                  onPress={() => onAssign(name)}
+                >
+                  <View style={styles.avatar} />
+                  <Text style={styles.personName}>{name}</Text>
+                  <Text style={styles.assignAction}>Assign</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
 
           <Pressable style={styles.dangerBtn} onPress={onUnassign}>
             <Text style={styles.dangerBtnLabel}>Remove from person</Text>
           </Pressable>
+
+          {onSetAvatar && (
+            <Pressable style={styles.avatarBtn} onPress={onSetAvatar}>
+              <CheckCircle size={16} color={colors.accent} weight="bold" />
+              <Text style={styles.avatarBtnLabel}>Set as avatar</Text>
+            </Pressable>
+          )}
         </View>
       </View>
     </Modal>
@@ -216,6 +228,21 @@ const styles = StyleSheet.create({
   },
   dangerBtnLabel: {
     color: colors.danger,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  avatarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: radius.sm,
+    paddingVertical: 12,
+  },
+  avatarBtnLabel: {
+    color: colors.accent,
     fontSize: 14,
     fontWeight: '600',
   },

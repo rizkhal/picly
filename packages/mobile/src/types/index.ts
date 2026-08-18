@@ -48,6 +48,8 @@ export interface Person {
   name: string;
   /** Representative thumbnail uri. */
   avatarUri: string;
+  /** Face id chosen as avatar (null = auto best-quality). */
+  avatarFaceId: string | null;
   faceCount: number;
   photoCount: number;
   quality: QualityTier;

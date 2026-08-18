@@ -1,8 +1,12 @@
-import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { ArrowLeft } from 'phosphor-react-native';
+import { useRef, useState } from 'react';
+import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import BottomSheet, { BottomSheetTextInput, BottomSheetView } from '@expo/ui/community/bottom-sheet';
+import { ArrowLeft, PencilSimple, X } from 'phosphor-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/types';
+import type { FaceBox } from '../../types';
 import { usePersonDetail } from '../../db/hooks';
+import { renamePerson } from '../../db/store';
 import { colors, radius, spacing } from '../../theme';
 import { QualityBadge } from '../components/QualityBadge';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
@@ -14,7 +18,24 @@ const COLUMNS = 3;
 
 export function PersonDetailScreen({ route, navigation }: Props) {
   const { personId } = route.params;
-  const { person, faces, loading } = usePersonDetail(personId);
+  const { person, faces, loading, reload } = usePersonDetail(personId);
+
+  const sheetRef = useRef<BottomSheet>(null);
+  const inputRef = useRef<TextInput>(null);
+  const [draft, setDraft] = useState('');
+
+  const openRename = () => {
+    setDraft(person?.name ?? '');
+    sheetRef.current?.snapToIndex(0);
+    // Focus once the native sheet is presented.
+    setTimeout(() => inputRef.current?.focus(), 250);
+  };
+
+  const saveRename = async () => {
+    await renamePerson(personId, draft);
+    sheetRef.current?.close();
+    reload();
+  };
 
   if (loading || !person) {
     return (
@@ -35,6 +56,27 @@ export function PersonDetailScreen({ route, navigation }: Props) {
   }
   const photoEntries = Array.from(byPhoto.values());
 
+  // Pixel boxes per photo uri (viewer normalizes against its container).
+  const boxesByPhoto: Record<string, FaceBox[]> = {};
+  for (const entry of photoEntries) {
+    boxesByPhoto[entry.uri] = entry.faces.map((f) => ({
+      x: f.box.x,
+      y: f.box.y,
+      w: f.box.w,
+      h: f.box.h,
+    }));
+  }
+
+  const openViewer = (uri: string, idx: number) => {
+    navigation.navigate('PersonPhotoViewer', {
+      personId: person.id,
+      personName: person.name,
+      photoUris: photoEntries.map((p) => p.uri),
+      index: idx,
+      facesByPhoto: boxesByPhoto,
+    });
+  };
+
   return (
     <ScreenSafeArea>
       <View style={styles.header}>
@@ -44,9 +86,9 @@ export function PersonDetailScreen({ route, navigation }: Props) {
         <Text style={styles.title} numberOfLines={1}>
           {person.name}
         </Text>
-        <View style={styles.headerRight}>
-          <QualityBadge tier={person.quality} />
-        </View>
+        <Pressable style={styles.iconBtn} onPress={openRename} hitSlop={8}>
+          <PencilSimple size={18} color={colors.text} />
+        </Pressable>
       </View>
 
       <View style={styles.summary}>
@@ -67,10 +109,10 @@ export function PersonDetailScreen({ route, navigation }: Props) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.faceRow}
         renderItem={({ item }) => (
-          <Pressable style={styles.faceCell}>
+          <View style={styles.faceCell}>
             <Image source={{ uri: item.thumbnailUri }} style={styles.faceThumb} />
             <QualityBadge tier={item.quality} size="sm" />
-          </Pressable>
+          </View>
         )}
       />
 
@@ -81,12 +123,36 @@ export function PersonDetailScreen({ route, navigation }: Props) {
         numColumns={COLUMNS}
         contentContainerStyle={styles.gridContent}
         columnWrapperStyle={styles.gridRow}
-        renderItem={({ item }) => (
-          <Pressable style={styles.cell}>
+        renderItem={({ item, index: idx }) => (
+          <Pressable style={styles.cell} onPress={() => openViewer(item.uri, idx)}>
             <Image source={{ uri: item.uri }} style={styles.thumb} />
           </Pressable>
         )}
       />
+
+      {/* Rename person bottom sheet */}
+      <BottomSheet ref={sheetRef} index={-1} enablePanDownToClose backgroundStyle={styles.sheet}>
+        <BottomSheetView style={styles.sheetContent}>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Rename person</Text>
+            <Pressable onPress={() => sheetRef.current?.close()} hitSlop={10}>
+              <X size={18} color={colors.textMuted} />
+            </Pressable>
+          </View>
+          <BottomSheetTextInput
+            ref={inputRef}
+            style={styles.input}
+            value={draft}
+            onChangeText={setDraft}
+            placeholder="Person name"
+            placeholderTextColor={colors.textFaint}
+            autoCapitalize="words"
+          />
+          <Pressable style={styles.saveBtn} onPress={saveRename}>
+            <Text style={styles.saveBtnLabel}>Save</Text>
+          </Pressable>
+        </BottomSheetView>
+      </BottomSheet>
     </ScreenSafeArea>
   );
 }
@@ -110,8 +176,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
   },
-  headerRight: {
-    alignItems: 'flex-end',
+  iconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   summary: {
     flexDirection: 'row',
@@ -180,5 +253,43 @@ const styles = StyleSheet.create({
   thumb: {
     width: '100%',
     height: '100%',
+  },
+  sheet: {
+    backgroundColor: colors.surface,
+  },
+  sheetContent: {
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sheetTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  input: {
+    backgroundColor: colors.surface2,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    color: colors.text,
+    fontSize: 15,
+  },
+  saveBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: radius.sm,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  saveBtnLabel: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

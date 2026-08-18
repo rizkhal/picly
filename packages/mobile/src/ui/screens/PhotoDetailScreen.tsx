@@ -9,12 +9,13 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import * as MediaLibrary from 'expo-media-library/legacy';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, MagnifyingGlassPlus, MagnifyingGlassMinus } from 'phosphor-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/types';
 import type { Face, Photo } from '../../types';
 import { getPhotoByAssetId } from '../../db/store';
-import { scanSinglePhoto } from '../../scanning/scanner';
+import { scanSinglePhoto, decodePhoto } from '../../scanning/scanner';
 import { colors, radius, spacing } from '../../theme';
 import { FaceBoxOverlay } from '../components/FaceBoxOverlay';
 import { FaceSheet } from '../components/FaceSheet';
@@ -38,6 +39,7 @@ type AnalyzeState = 'checking' | 'analyzing' | 'done' | 'failed';
 export function PhotoDetailScreen({ route, navigation }: Props) {
   const { photoId } = route.params;
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   const [photo, setPhoto] = useState<Photo | null>(null);
   const [analyzeState, setAnalyzeState] = useState<AnalyzeState>('checking');
@@ -90,6 +92,10 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
           exists: true,
         });
         setAnalyzeState('analyzing');
+        // Let React paint the photo FIRST — analysis blocks the JS thread
+        // (onnx is synchronous), so without this yield the screen stays black
+        // until the (potentially slow) model load + detect finishes.
+        await new Promise((r) => setTimeout(r, 120));
         const result = await scanSinglePhoto({
           id: photoId,
           uri,
@@ -116,24 +122,32 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
     };
   }, [photoId, route.params.uri, route.params.width, route.params.height]);
 
-  // Normalize pixel bboxes (from the DB) to 0..1 relative to the photo, and
-  // seed local state once when the photo loads.
-  const normalized = useMemo(() => {
-    if (!photo) return [];
-    return (photo.faces ?? []).map((f) => ({
-      ...f,
-      box: {
-        x: f.box.x / (photo.width || 1),
-        y: f.box.y / (photo.height || 1),
-        w: f.box.w / (photo.width || 1),
-        h: f.box.h / (photo.height || 1),
-      },
-    }));
-  }, [photo]);
+  // PhotoDetail consumes normalized faces (store normalizes with the stored
+  // EXIF-oriented dims). Local state only re-seeds when the photo reloads.
+  const normalized = useMemo(() => (photo?.faces ?? []).map((f) => ({ ...f })), [photo]);
 
   useEffect(() => {
     if (photo) setLocalFaces(normalized);
   }, [normalized, photo]);
+
+  // Fallback: when a scanned photo has no stored dims (old rows), derive them
+  // from the decoder so the box overlay still aligns.
+  useEffect(() => {
+    if (!photo || photo.faces.length === 0 || (photo.width > 0 && photo.height > 0)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const dims = await decodePhoto(photo.uri);
+        if (cancelled) return;
+        setPhoto((prev) => (prev ? { ...prev, width: dims.width, height: dims.height } : prev));
+      } catch {
+        // ignore — fallback failed, boxes render relative to 0 dims
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [photo]);
 
   if (!photo) {
     return (
@@ -149,6 +163,8 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
   }
 
   const displayHeight = (width / (photo.width || 1)) * (photo.height || 1);
+  const hasDims = photo.width > 0 && photo.height > 0;
+  const imageStyle = hasDims ? { width: width * scale, height: displayHeight * scale } : { width: width * scale, aspectRatio: 1 };
 
   const openFace = (face: Face) => {
     setActiveFace(face);
@@ -220,50 +236,52 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
         bouncesZoom
         pinchGestureEnabled
       >
-        <View
-          style={{
-            width: width * scale,
-            height: displayHeight * scale,
-          }}
-        >
-          <Image
-            source={{ uri: photo.uri }}
-            style={[styles.photo, { width: width * scale, height: displayHeight * scale }]}
-            resizeMode="cover"
-          />
-          {localFaces.map((face) => (
-            <View key={face.id} style={StyleSheet.absoluteFill}>
-              <Pressable
-                style={{
-                  position: 'absolute',
-                  left: `${face.box.x * 100}%`,
-                  top: `${face.box.y * 100}%`,
-                  width: `${face.box.w * 100}%`,
-                  height: `${face.box.h * 100}%`,
-                }}
-                onPress={() => openFace(face)}
-              >
-                <FaceBoxOverlay box={face.box} />
-              </Pressable>
-            </View>
-          ))}
+        <View style={styles.scrollInner}>
+          <View
+            style={{
+              width: imageStyle.width,
+              height: imageStyle.height,
+            }}
+          >
+            <Image
+              source={{ uri: photo.uri }}
+              style={[styles.photo, imageStyle]}
+              resizeMode="cover"
+            />
+            {localFaces.map((face) => (
+              <View key={face.id} style={StyleSheet.absoluteFill}>
+                <Pressable
+                  style={{
+                    position: 'absolute',
+                    left: `${face.box.x * 100}%`,
+                    top: `${face.box.y * 100}%`,
+                    width: `${face.box.w * 100}%`,
+                    height: `${face.box.h * 100}%`,
+                  }}
+                  onPress={() => openFace(face)}
+                >
+                  <FaceBoxOverlay box={face.box} />
+                </Pressable>
+              </View>
+            ))}
+          </View>
         </View>
       </ScrollView>
 
       {/* Status banner: analyzing / no faces / failed */}
       {analyzeState === 'analyzing' && (
-        <View style={styles.banner}>
+        <View style={[styles.banner, { paddingBottom: insets.bottom + spacing.md }]}>
           <Spinner size="small" color={colors.accent} />
           <Text style={styles.bannerLabel}>Analyzing faces…</Text>
         </View>
       )}
       {analyzeState === 'done' && localFaces.length === 0 && (
-        <View style={styles.banner}>
+        <View style={[styles.banner, { paddingBottom: insets.bottom + spacing.md }]}>
           <Text style={styles.bannerLabel}>No faces found</Text>
         </View>
       )}
       {analyzeState === 'failed' && (
-        <View style={[styles.banner, styles.bannerError]}>
+        <View style={[styles.banner, styles.bannerError, { paddingBottom: insets.bottom + spacing.md }]}>
           <Text style={[styles.bannerLabel, { color: colors.danger }]}>
             Analysis failed{analyzeError ? `: ${analyzeError}` : ''}
           </Text>
@@ -271,7 +289,7 @@ export function PhotoDetailScreen({ route, navigation }: Props) {
       )}
 
       {localFaces.length > 0 && (
-        <View style={styles.faceStrip}>
+        <View style={[styles.faceStrip, { paddingBottom: insets.bottom + spacing.md }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {localFaces.map((face) => (
               <Pressable key={face.id} style={styles.faceChip} onPress={() => openFace(face)}>
@@ -336,6 +354,9 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
+  },
+  scrollInner: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },

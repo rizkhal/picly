@@ -276,6 +276,17 @@ export class FaceAnalysis {
     return this.detectFromImage(img)
   }
 
+  /** Decode a source without running inference (mobile exposes this to keep the
+   * decode dimensions — the oriented space boxes live in — for the DB row). */
+  async decodePublic(source: string): Promise<RgbImage> {
+    return this.decoder.decode(source)
+  }
+
+  /** Public wrapper over the private pipeline (mobile reuses the decode). */
+  async detectFromImagePublic(img: RgbImage): Promise<DetectedFace[]> {
+    return this.detectFromImage(img)
+  }
+
   /**
    * Public helper for tools/scripts: warp an aligned 112x112 RGB crop from raw
    * SCRFD kps (same transform `embedFace` uses). Returns a copy so callers own

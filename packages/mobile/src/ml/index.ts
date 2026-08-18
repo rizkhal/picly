@@ -30,10 +30,25 @@ export function getAnalysis(): Promise<FaceAnalysis> {
   return analysisPromise;
 }
 
-/** Convenience: decode a uri and run the full pipeline on it. */
-export async function analyzePhoto(uri: string): Promise<DetectedFace[]> {
+/**
+ * Convenience: decode a uri and run the full pipeline on it.
+ * Returns the detected faces plus the DECODED dimensions — the same oriented
+ * space the boxes live in (EXIF-applied), which may differ from the
+ * media-library width/height for rotated phone photos.
+ */
+export async function analyzePhoto(
+  uri: string,
+): Promise<{ detected: DetectedFace[]; width: number; height: number }> {
   const analysis = await getAnalysis();
-  return analysis.detect(uri);
+  const img = await analysis.decodePublic(uri);
+  const detected = await analysis.detectFromImagePublic(img);
+  return { detected, width: img.width, height: img.height };
+}
+
+/** Decode only (no inference) — returns oriented pixel dims + RGB bytes. */
+export async function decodePhoto(uri: string): Promise<{ width: number; height: number; data: Uint8Array }> {
+  const analysis = await getAnalysis();
+  return analysis.decodePublic(uri);
 }
 
 export async function warmup(): Promise<void> {
