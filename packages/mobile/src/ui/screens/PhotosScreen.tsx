@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { FolderSimple, Images, Plus } from 'phosphor-react-native';
+import { ArrowLeft, FolderSimple, Images, Plus } from 'phosphor-react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,7 +10,7 @@ import { colors, radius, spacing } from '../../theme';
 import { Spinner } from '../components/Spinner';
 import { EmptyState } from '../components/EmptyState';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
-import { ensurePhotoPermission, fetchAlbums, fetchPhotoLibrary } from '../../db/media';
+import { ensurePhotoPermission, fetchAlbums, fetchAlbumPhotos, fetchPhotoLibrary } from '../../db/media';
 
 type Nav = NavigationProp<RootStackParamList>;
 
@@ -23,6 +23,9 @@ export function PhotosScreen() {
   const [seg, setSeg] = useState<'all' | 'folders'>('all');
   const [photos, setPhotos] = useState<LibraryPhoto[]>([]);
   const [albums, setAlbums] = useState<LibraryAlbum[]>([]);
+  const [selectedAlbum, setSelectedAlbum] = useState<LibraryAlbum | null>(null);
+  const [albumPhotos, setAlbumPhotos] = useState<LibraryPhoto[]>([]);
+  const [albumLoading, setAlbumLoading] = useState(false);
   const [permission, setPermission] = useState<'unknown' | 'granted' | 'denied'>('unknown');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
@@ -67,9 +70,20 @@ export function PhotosScreen() {
 
   const gridPhotos = useMemo(() => {
     if (seg === 'all') return photos;
+    if (selectedAlbum) return albumPhotos;
     // Folder mode currently shows all — folder drill-down wires in later.
     return photos;
-  }, [seg, photos]);
+  }, [seg, photos, selectedAlbum, albumPhotos]);
+
+  const openAlbum = useCallback(async (album: LibraryAlbum) => {
+    setSelectedAlbum(album);
+    setAlbumLoading(true);
+    try {
+      setAlbumPhotos(await fetchAlbumPhotos(album.id));
+    } finally {
+      setAlbumLoading(false);
+    }
+  }, []);
 
   if (loading) {
     return (
@@ -106,26 +120,47 @@ export function PhotosScreen() {
           title="Photo access needed"
           subtitle="Allow photo access in system settings so Picly can find and scan your faces."
         />
-      ) : seg === 'all' ? (
+      ) : seg === 'all' || selectedAlbum ? (
         <FlatList
-          key="photos-grid"
+          key={selectedAlbum ? 'album-grid' : 'photos-grid'}
           data={gridPhotos}
           keyExtractor={(p) => p.id}
           numColumns={COLUMNS}
           contentContainerStyle={styles.gridContent}
           columnWrapperStyle={styles.gridRow}
           onEndReached={() => {
-            if (hasMore && !refreshing) loadPage(page + 1, true);
+            if (seg === 'all' && hasMore && !refreshing) loadPage(page + 1, true);
           }}
           onEndReachedThreshold={0.4}
           onRefresh={refresh}
           refreshing={refreshing}
+          ListHeaderComponent={
+            selectedAlbum ? (
+              <Pressable style={styles.backRow} onPress={() => setSelectedAlbum(null)}>
+                <ArrowLeft size={16} color={colors.textMuted} />
+                <Text style={styles.backLabel} numberOfLines={1}>
+                  {selectedAlbum.name}
+                </Text>
+                <Text style={styles.backCount}>{selectedAlbum.photoCount} photos</Text>
+              </Pressable>
+            ) : null
+          }
           ListEmptyComponent={
-            <EmptyState
-              icon={Images}
-              title="No photos yet"
-              subtitle="Photos on your device will show up here."
-            />
+            albumLoading ? (
+              <View style={styles.footerLoading}>
+                <ActivityIndicator color={colors.textMuted} />
+              </View>
+            ) : (
+              <EmptyState
+                icon={Images}
+                title={selectedAlbum ? 'No photos in this folder' : 'No photos yet'}
+                subtitle={
+                  selectedAlbum
+                    ? 'This folder has no photos.'
+                    : 'Photos on your device will show up here.'
+                }
+              />
+            )
           }
           renderItem={({ item }) => (
             <Pressable
@@ -157,7 +192,7 @@ export function PhotosScreen() {
           keyExtractor={(f) => f.id}
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => (
-            <Pressable style={styles.folderRow} onPress={() => setSeg('all')}>
+            <Pressable style={styles.folderRow} onPress={() => openAlbum(item)}>
               <View style={styles.folderIcon}>
                 <FolderSimple size={20} color={colors.textMuted} />
               </View>
@@ -250,6 +285,23 @@ const styles = StyleSheet.create({
   listContent: {
     padding: spacing.lg,
     gap: spacing.sm,
+  },
+  backRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm,
+  },
+  backLabel: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  backCount: {
+    color: colors.textMuted,
+    fontSize: 13,
   },
   folderRow: {
     flexDirection: 'row',

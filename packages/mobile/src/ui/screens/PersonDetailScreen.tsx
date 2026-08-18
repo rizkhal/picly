@@ -9,7 +9,6 @@ import type { FaceBox } from '../../types';
 import { usePersonDetail } from '../../db/hooks';
 import { renamePerson, setPersonAvatar, setPersonAvatarImage } from '../../db/store';
 import { colors, radius, spacing } from '../../theme';
-import { QualityBadge } from '../components/QualityBadge';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
 import { Spinner } from '../components/Spinner';
 
@@ -152,21 +151,6 @@ export function PersonDetailScreen({ route, navigation }: Props) {
           </Text>
         </View>
       </View>
-
-      <Text style={styles.sectionLabel}>FACES</Text>
-      <FlatList
-        horizontal
-        data={faces}
-        keyExtractor={(f) => f.id}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.faceRow}
-        renderItem={({ item }) => (
-          <View style={styles.faceCell}>
-            <Image source={{ uri: item.thumbnailUri }} style={styles.faceThumb} />
-            <QualityBadge tier={item.quality} size="sm" />
-          </View>
-        )}
-      />
 
       <Text style={styles.sectionLabel}>PHOTOS</Text>
       <FlatList
@@ -324,21 +308,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.sm,
-  },
-  faceRow: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
-    paddingBottom: spacing.xl,
-  },
-  faceCell: {
-    gap: 2,
-    alignItems: 'center',
-  },
-  faceThumb: {
-    width: 76,
-    height: 76,
-    borderRadius: radius.md,
-    backgroundColor: colors.surface2,
   },
   gridContent: {
     paddingHorizontal: spacing.xs,

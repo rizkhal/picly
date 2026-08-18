@@ -8,7 +8,6 @@ import { usePersons } from '../../db/hooks';
 import { ensureClustered } from '../../scanning/scanner';
 import { colors, radius, spacing } from '../../theme';
 import { EmptyState } from '../components/EmptyState';
-import { QualityBadge } from '../components/QualityBadge';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
 import { Spinner } from '../components/Spinner';
 
@@ -68,7 +67,13 @@ export function PeopleScreen() {
             onPress={() => navigation.navigate('PersonDetail', { personId: item.id })}
           >
             <View style={styles.avatarWrap}>
-              <Image source={{ uri: item.avatarUri }} style={styles.avatar} />
+              {item.avatarUri ? (
+                <Image source={{ uri: item.avatarUri }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                  <Users size={28} color={colors.textFaint} />
+                </View>
+              )}
               <View style={styles.countBadge}>
                 <Text style={styles.countLabel}>{item.faceCount}</Text>
               </View>
@@ -76,7 +81,6 @@ export function PeopleScreen() {
             <Text style={styles.name} numberOfLines={1}>
               {item.name}
             </Text>
-            <QualityBadge tier={item.quality} size="sm" />
           </Pressable>
         )}
       />
@@ -122,6 +126,10 @@ const styles = StyleSheet.create({
   avatar: {
     width: '100%',
     height: '100%',
+  },
+  avatarPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   countBadge: {
     position: 'absolute',

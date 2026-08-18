@@ -70,3 +70,25 @@ export async function fetchAlbumPhotoIds(albumId: string): Promise<string[]> {
   });
   return assets.map((a) => a.id);
 }
+
+/** Fetch full photo rows within one album (newest first). */
+export async function fetchAlbumPhotos(albumId: string): Promise<LibraryPhoto[]> {
+  const albums = await MediaLibrary.getAlbumsAsync();
+  const album = albums.find((a) => a.id === albumId);
+  if (!album) return [];
+  const { assets } = await MediaLibrary.getAssetsAsync({
+    album,
+    mediaType: MediaLibrary.MediaType.photo,
+    sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+    first: 10000,
+  });
+  return assets.map((a) => ({
+    id: a.id,
+    uri: a.uri,
+    width: a.width || 0,
+    height: a.height || 0,
+    createdAt: a.creationTime * 1000 || Date.now(),
+    filename: a.filename ?? '',
+    exists: true,
+  }));
+}
