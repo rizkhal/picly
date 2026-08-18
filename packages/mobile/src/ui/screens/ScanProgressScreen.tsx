@@ -7,7 +7,7 @@ import type { ScanStage } from '../../types';
 import { colors, radius, spacing } from '../../theme';
 import { Spinner } from '../components/Spinner';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
-import { scanPhotos, type ScanPhotoItem, type ScanProgressEvent } from '../../scanning/scanner';
+import { scanFolder, scanPhotos, type ScanPhotoItem, type ScanProgressEvent, type ScanScope } from '../../scanning/scanner';
 import { fetchPhotoLibrary } from '../../db/media';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScanProgress'>;
@@ -24,7 +24,10 @@ const STAGES: Array<{ id: ScanStage; label: string }> = [
  * faces to sqlite, then clusters offline. Cancellable; the run is resumed
  * later (already-scanned photos are skipped on the next run).
  */
-export function ScanProgressScreen({ navigation }: Props) {
+export function ScanProgressScreen({ navigation, route }: Props) {
+  const params = route.params;
+  const scope: ScanScope = params && 'mode' in params && params.mode === 'folder' ? 'folder' : 'all';
+  const scopeTitle = params && 'title' in params ? params.title : 'All Photos';
   const [progress, setProgress] = useState(0);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [stage, setStage] = useState<ScanStage>('detecting');
@@ -40,13 +43,26 @@ export function ScanProgressScreen({ navigation }: Props) {
     let mounted = true;
     const run = async () => {
       try {
-        const { items, hasMore } = await fetchPhotoLibrary(0, 1000);
-        const photos: ScanPhotoItem[] = items.map((p) => ({
-          id: p.id,
-          uri: p.uri,
-          width: p.width,
-          height: p.height,
-        }));
+        let photos: ScanPhotoItem[];
+        if (scope === 'folder' && params && 'albumId' in params) {
+          const { fetchAlbumPhotos } = await import('../../db/media');
+          const items = await fetchAlbumPhotos(params.albumId);
+          photos = items.map((p) => ({
+            id: p.id,
+            uri: p.uri,
+            width: p.width,
+            height: p.height,
+            albumId: params.albumId,
+          }));
+        } else {
+          const { items } = await fetchPhotoLibrary(0, 1000);
+          photos = items.map((p) => ({
+            id: p.id,
+            uri: p.uri,
+            width: p.width,
+            height: p.height,
+          }));
+        }
         if (!mounted) return;
         setTotal(photos.length);
         // Let the first paint happen before the (synchronous-blocking) loop.
@@ -66,10 +82,16 @@ export function ScanProgressScreen({ navigation }: Props) {
           );
           setFacesTotal((prev) => (e.photoFaces > 0 ? prev + e.photoFaces : prev));
         };
-        const result = await scanPhotos(photos, {
-          onProgress,
-          shouldCancel: () => cancelRef.current,
-        });
+        const result =
+          scope === 'folder' && params && 'albumId' in params
+            ? await scanFolder(params.albumId, {
+                onProgress,
+                shouldCancel: () => cancelRef.current,
+              })
+            : await scanPhotos(photos, {
+                onProgress,
+                shouldCancel: () => cancelRef.current,
+              });
         if (!mounted) return;
         if (result.cancelled) {
           navigation.goBack();
@@ -99,7 +121,7 @@ export function ScanProgressScreen({ navigation }: Props) {
         <Pressable onPress={() => navigation.goBack()} hitSlop={10}>
           <ArrowLeft size={22} color={colors.text} />
         </Pressable>
-        <Text style={styles.title}>{done ? 'Scan complete' : 'Scanning'}</Text>
+        <Text style={styles.title}>{done ? 'Scan complete' : scope === 'folder' ? `Scanning ${scopeTitle}…` : 'Scanning'}</Text>
         <View style={styles.headerSpacer} />
       </View>
 

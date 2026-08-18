@@ -18,6 +18,7 @@ import { PeopleScreen } from '../ui/screens/PeopleScreen';
 import { SearchScreen } from '../ui/screens/SearchScreen';
 import { SettingsScreen } from '../ui/screens/SettingsScreen';
 import { ScanProgressScreen } from '../ui/screens/ScanProgressScreen';
+import { AlbumPhotosScreen } from '../ui/screens/AlbumPhotosScreen';
 import { PersonDetailScreen } from '../ui/screens/PersonDetailScreen';
 import { PersonPhotoViewerScreen } from '../ui/screens/PersonPhotoViewerScreen';
 import { PhotoDetailScreen } from '../ui/screens/PhotoDetailScreen';
@@ -100,6 +101,7 @@ export function RootNavigator() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="AuthFlow" component={AuthFlow} />
       <Stack.Screen name="ScanProgress" component={ScanProgressScreen} />
+      <Stack.Screen name="AlbumPhotos" component={AlbumPhotosScreen} />
       <Stack.Screen name="PersonDetail" component={PersonDetailScreen} />
       <Stack.Screen name="PersonPhotoViewer" component={PersonPhotoViewerScreen} />
       <Stack.Screen name="PhotoDetail" component={PhotoDetailScreen} />

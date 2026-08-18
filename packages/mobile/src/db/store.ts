@@ -4,8 +4,11 @@
 
 import type { Face, Person, Photo } from '../types';
 import { getDb } from './index';
-import { embeddingToBlob } from '../utils/vec';
+import { blobToEmbedding, cosine, embeddingToBlob } from '../utils/vec';
 import type { PersonCluster } from './cluster';
+
+/** Minimum cosine similarity for an unassigned face to join an existing person. */
+export const CLUSTER_MIN_SIMILARITY = 0.45;
 
 /** Directory where custom avatar images are stored (app-private). */
 export const AVATAR_DIR = 'avatars';
@@ -480,25 +483,79 @@ export async function addPhotoWithFaces(photo: AddPhotoInput, faces: AddFaceInpu
 }
 
 /**
- * Persist the HAC clustering result: clear person links, recreate persons
- * from the clusters, and assign each member face. Mirrors desktop
- * clusterAllFaces (custom names are NOT preserved on mobile — the user has no
- * rename flow yet, so every re-cluster renames Person N from scratch).
+ * Persist the HAC clustering result WITHOUT wiping existing assignments:
+ *
+ * - Faces that already have a person keep their person (custom names stay).
+ * - Assigned faces are skipped, so a per-folder re-scan can never move or
+ *   un-assign a face the user already placed.
+ * - Unassigned faces are matched against existing persons by best cosine
+ *   similarity (>= minSimilarity); when no person matches, a new one is created.
+ *
+ * Mirrors desktop clusterAllFaces semantics but merge-safe.
  */
-export async function applyClusters(clusters: PersonCluster[]): Promise<void> {
+/**
+ * Persist the HAC clustering result WITHOUT wiping existing assignments:
+ *
+ * - Faces that already have a person in the DB keep their person — re-clustering
+ *   never moves or un-assigns a face the user already placed (custom names stay).
+ * - For each fresh cluster, the faces that are still unassigned either join the
+ *   best-matching existing person (cluster centroid cosine >= minSimilarity) or
+ *   create a new person. Assigned members of a cluster are never touched.
+ *
+ * Mirrors desktop clusterAllFaces semantics but merge-safe.
+ */
+export async function applyClusters(
+  clusters: PersonCluster[],
+  options: { minSimilarity?: number; manualPersonIds?: string[] } = {},
+): Promise<void> {
+  const { minSimilarity = CLUSTER_MIN_SIMILARITY, manualPersonIds = [] } = options;
   const db = await getDb();
+  const manual = new Set(manualPersonIds);
   await db.withTransactionAsync(async () => {
-    await db.runAsync('UPDATE faces SET person_id = NULL');
-    await db.runAsync('DELETE FROM persons');
-    for (const cluster of clusters) {
-      await db.runAsync(
-        `INSERT INTO persons (id, name, centroid) VALUES (?, ?, ?)`,
-        cluster.id,
-        cluster.name,
-        embeddingToBlob(cluster.centroid),
-      );
-      for (const faceId of cluster.faceIds) {
-        await db.runAsync('UPDATE faces SET person_id = ? WHERE id = ?', cluster.id, faceId);
+    // 1. Existing persons (skip manually-kept ones for auto-match).
+    const persons = await db.getAllAsync<{ id: string; centroid: Uint8Array | null }>(
+      `SELECT id, centroid FROM persons`,
+    );
+    const centroids = persons
+      .filter((p) => !manual.has(p.id) && p.centroid)
+      .map((p) => ({ id: p.id, centroid: blobToEmbedding(p.centroid!) }));
+
+    // 2. Faces already assigned in the DB are frozen — never moved.
+    const assignedRows = await db.getAllAsync<{ id: string }>(
+      `SELECT id FROM faces WHERE person_id IS NOT NULL`,
+    );
+    const frozen = new Set(assignedRows.map((r) => r.id));
+
+    // 3. For each fresh cluster: unassigned members join the best existing
+    //    person (centroid sim >= minSimilarity), otherwise form a new person.
+    for (const c of clusters) {
+      const fresh = c.faceIds.filter((fid) => !frozen.has(fid));
+      if (fresh.length === 0) continue;
+
+      let bestId: string | null = null;
+      let bestSim = minSimilarity;
+      for (const p of centroids) {
+        const sim = cosine(c.centroid, p.centroid);
+        if (sim > bestSim) {
+          bestSim = sim;
+          bestId = p.id;
+        }
+      }
+
+      if (bestId) {
+        for (const fid of fresh) {
+          await db.runAsync('UPDATE faces SET person_id = ? WHERE id = ?', bestId, fid);
+        }
+      } else {
+        await db.runAsync(
+          `INSERT INTO persons (id, name, centroid) VALUES (?, ?, ?)`,
+          c.id,
+          c.name,
+          embeddingToBlob(c.centroid),
+        );
+        for (const fid of fresh) {
+          await db.runAsync('UPDATE faces SET person_id = ? WHERE id = ?', c.id, fid);
+        }
       }
     }
   });

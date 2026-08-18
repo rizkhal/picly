@@ -27,6 +27,8 @@ export interface ScanPhotoItem {
   uri: string;
   width: number;
   height: number;
+  /** album (folder) the photo belongs to — written to the photos table. */
+  albumId?: string;
 }
 
 export interface ScanProgressEvent {
@@ -54,7 +56,11 @@ export interface ScanResult {
 export interface ScanOptions {
   onProgress?: (e: ScanProgressEvent) => void;
   shouldCancel?: () => boolean;
+  /** Clustering scope — 'all' re-clusters the whole library, 'folder' only faces of the scanned album. */
+  scope?: 'all' | 'folder';
 }
+
+export type ScanScope = NonNullable<ScanOptions['scope']>;
 
 function emit(
   onProgress: ScanOptions['onProgress'],
@@ -108,7 +114,7 @@ export async function scanSinglePhoto(photo: ScanPhotoItem): Promise<{ faces: nu
  * persons (same order as desktop: insert all -> offline HAC -> assign).
  */
 export async function scanPhotos(photos: ScanPhotoItem[], options: ScanOptions = {}): Promise<ScanResult> {
-  const { onProgress, shouldCancel } = options;
+  const { onProgress, shouldCancel, scope = 'all' } = options;
   const t0 = Date.now();
   let processed = 0;
   let photosWithFaces = 0;
@@ -160,6 +166,7 @@ export async function scanPhotos(photos: ScanPhotoItem[], options: ScanOptions =
           uri: photo.uri,
           width,
           height,
+          albumId: photo.albumId,
         } satisfies AddPhotoInput,
         addFaces,
       );
@@ -180,7 +187,7 @@ export async function scanPhotos(photos: ScanPhotoItem[], options: ScanOptions =
     });
   }
 
-  // Offline HAC over every scanned face (same as desktop clusterAllFaces).
+  // Offline HAC over the scanned faces (same as desktop clusterAllFaces).
   let clusters = 0;
   if (!cancelled && totalFaces > 0) {
     emit(onProgress, {
@@ -192,7 +199,10 @@ export async function scanPhotos(photos: ScanPhotoItem[], options: ScanOptions =
       errors,
     });
     try {
-      const pool = await allClusterFaces();
+      const pool =
+        scope === 'folder' && photos.length > 0 && photos[0].albumId
+          ? await scannedClusterFaces(photos[0].albumId!)
+          : await allClusterFaces();
       const result = clusterFaces(pool, CLUSTER_LINKAGE_THRESHOLD);
       await applyClusters(result);
       clusters = result.length;
@@ -228,6 +238,46 @@ async function allClusterFaces(): Promise<ClusterFace[]> {
     embedding: r.embedding ? blobToEmbedding(r.embedding) : null,
     quality: (r.face_quality ?? 'medium') as ClusterFace['quality'],
   }));
+}
+
+/**
+ * Load cluster candidates for the faces scanned in THIS run (folder scope).
+ * Only faces belonging to photos of the scanned album are included, so a
+ * per-folder re-scan never re-clusters the whole library.
+ */
+async function scannedClusterFaces(albumId: string): Promise<ClusterFace[]> {
+  const { getDb } = await import('../db');
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ id: string; embedding: Uint8Array | null; face_quality: string }>(
+    `SELECT f.id AS id, f.embedding AS embedding, f.face_quality AS face_quality
+     FROM faces f JOIN photos p ON p.id = f.photo_id
+     WHERE p.deleted_at IS NULL AND p.album_id = ? AND f.embedding IS NOT NULL`,
+    albumId,
+  );
+  const { blobToEmbedding } = await import('../utils/vec');
+  return rows.map((r) => ({
+    id: r.id,
+    embedding: r.embedding ? blobToEmbedding(r.embedding) : null,
+    quality: (r.face_quality ?? 'medium') as ClusterFace['quality'],
+  }));
+}
+
+/**
+ * Scan ONE folder (album) end-to-end: fetch its photos, run the pipeline,
+ * then cluster. The album_id is written to the photos table so later folder
+ * scans can be scoped correctly.
+ */
+export async function scanFolder(albumId: string, options: ScanOptions = {}): Promise<ScanResult> {
+  const { fetchAlbumPhotos } = await import('../db/media');
+  const photos = await fetchAlbumPhotos(albumId);
+  const items: ScanPhotoItem[] = photos.map((p) => ({
+    id: p.id,
+    uri: p.uri,
+    width: p.width,
+    height: p.height,
+    albumId,
+  }));
+  return scanPhotos(items, { ...options, scope: 'folder' });
 }
 
 /**

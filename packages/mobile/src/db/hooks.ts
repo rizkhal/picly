@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import type { Face, Person, Photo } from '../types';
 import { getPerson, listPersonFaces, listPersons, listPhotos, getPhoto, listUnassignedFaces } from '../db/store';
+import { ensureClustered } from '../scanning/scanner';
 
 export function usePersons() {
   const [persons, setPersons] = useState<Person[]>([]);
@@ -22,7 +23,22 @@ export function usePersons() {
   // screen after renaming a person), not only on first mount.
   useFocusEffect(
     useCallback(() => {
-      reload();
+      // Faces scanned via photo-detail (scanSinglePhoto) or a re-cluster may
+      // leave unassigned faces with embeddings — cluster them BEFORE the list
+      // loads so the People tab is never empty after a scan.
+      let mounted = true;
+      (async () => {
+        try {
+          const created = await ensureClustered();
+          if (mounted && created > 0) setLoading(true);
+        } catch (err) {
+          console.warn('[people] auto-cluster failed:', err);
+        }
+        if (mounted) await reload();
+      })();
+      return () => {
+        mounted = false;
+      };
     }, [reload]),
   );
 

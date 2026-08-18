@@ -1,11 +1,9 @@
-import { useEffect } from 'react';
 import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Users } from 'phosphor-react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../../navigation/types';
 import { usePersons } from '../../db/hooks';
-import { ensureClustered } from '../../scanning/scanner';
 import { colors, radius, spacing } from '../../theme';
 import { EmptyState } from '../components/EmptyState';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
@@ -16,24 +14,6 @@ type Nav = NavigationProp<RootStackParamList>;
 export function PeopleScreen() {
   const navigation = useNavigation<Nav>();
   const { persons, loading, reload } = usePersons();
-
-  // Faces scanned via photo detail (scanSinglePhoto) never ran clustering, so
-  // the persons table can be empty despite faces being stored. Cluster once on
-  // open whenever there are unassigned embeddable faces, then reload.
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const created = await ensureClustered();
-        if (mounted && created > 0) reload();
-      } catch (err) {
-        console.warn('[people] auto-cluster failed:', err);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [reload]);
 
   if (loading) {
     return (

@@ -13,7 +13,10 @@ export type RootStackParamList = {
   Main: undefined;
   Onboarding: undefined;
   Auth: undefined;
-  ScanProgress: { photoUri?: string } | undefined;
+  ScanProgress:
+    | { mode?: 'all'; title?: string }
+    | { mode: 'folder'; albumId: string; title: string }
+    | undefined;
   PersonDetail: { personId: string };
   /** Fullscreen photo viewer for a person — swipe between their photos. */
   PersonPhotoViewer: {
@@ -29,6 +32,12 @@ export type RootStackParamList = {
   /** photoId = media-library asset id. uri/width/height optional — when present
    * the detail screen renders immediately without a media-library lookup. */
   PhotoDetail: { photoId: string; uri?: string; width?: number; height?: number };
+  /** Grid of photos for a home-screen group (all / camera / screenshots / album). */
+  AlbumPhotos: {
+    kind: 'all' | 'camera' | 'screenshots' | 'album';
+    albumId?: string;
+    title: string;
+  };
   ManagePhotos: undefined;
   ManagePeople: undefined;
 };
