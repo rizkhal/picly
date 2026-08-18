@@ -518,7 +518,8 @@ export async function applyClusters(
     );
     const centroids = persons
       .filter((p) => !manual.has(p.id) && p.centroid)
-      .map((p) => ({ id: p.id, centroid: blobToEmbedding(p.centroid!) }));
+      .map((p) => ({ id: p.id, centroid: blobToEmbedding(p.centroid!) }))
+      .filter((p): p is { id: string; centroid: Float32Array } => p.centroid != null);
 
     // 2. Faces already assigned in the DB are frozen — never moved.
     const assignedRows = await db.getAllAsync<{ id: string }>(

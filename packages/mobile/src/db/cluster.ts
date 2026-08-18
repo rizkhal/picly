@@ -48,10 +48,13 @@ export function clusterFaces(
 ): PersonCluster[] {
   if (faces.length === 0) return [];
 
-  // Only embeddable faces join the pool.
+  // Only embeddable faces join the pool. Skip null / malformed embeddings so a
+  // bad BLOB (e.g. from a different Hermes blob representation) never crashes
+  // the cluster loop with "Cannot convert undefined value to object".
   const embedIdx: number[] = [];
   for (let i = 0; i < faces.length; i++) {
-    if (faces[i].embedding) embedIdx.push(i);
+    const e = faces[i].embedding;
+    if (e instanceof Float32Array && e.length === EMBEDDING_DIM) embedIdx.push(i);
   }
   const m = embedIdx.length;
   if (m === 0) return [];

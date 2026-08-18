@@ -3,9 +3,22 @@
 
 export const EMBEDDING_DIM = 512;
 
-/** Uint8Array (as stored in sqlite BLOB) -> Float32Array view. */
-export function blobToEmbedding(bytes: Uint8Array): Float32Array {
-  return new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
+/**
+ * Uint8Array / ArrayBuffer (as stored in sqlite BLOB) -> Float32Array view.
+ *
+ * Hermes (RN) can hand back blobs as either a Uint8Array or a raw ArrayBuffer;
+ * handle both and return null for anything malformed instead of throwing.
+ */
+export function blobToEmbedding(bytes: Uint8Array | ArrayBuffer | null | undefined): Float32Array | null {
+  if (bytes == null) return null;
+  const isArrayBuffer = bytes instanceof ArrayBuffer;
+  const buf: ArrayBuffer = isArrayBuffer
+    ? (bytes as ArrayBuffer)
+    : ((bytes as Uint8Array).buffer as ArrayBuffer);
+  const byteOffset = isArrayBuffer ? 0 : (bytes as Uint8Array).byteOffset;
+  const byteLength = isArrayBuffer ? (bytes as ArrayBuffer).byteLength : (bytes as Uint8Array).byteLength;
+  if (byteLength === 0 || byteLength % 4 !== 0) return null;
+  return new Float32Array(buf, byteOffset, byteLength / 4);
 }
 
 /** Float32Array -> Uint8Array (for sqlite BLOB storage). */
