@@ -35,6 +35,13 @@
       "expo-sqlite",
       "expo-file-system",
       "expo-media-library",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/logo-128.png",
+          "color": "#F97316"
+        }
+      ],
       "expo-status-bar",
       "expo-system-ui",
       [

@@ -9,6 +9,12 @@ import { Spinner } from '../components/Spinner';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
 import { scanFolder, scanPhotos, type ScanPhotoItem, type ScanProgressEvent, type ScanScope } from '../../scanning/scanner';
 import { fetchPhotoLibrary } from '../../db/media';
+import {
+  dismissScanNotification,
+  finishScanNotification,
+  startScanNotification,
+  updateScanNotification,
+} from '../../scanning/notifications';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScanProgress'>;
 
@@ -41,8 +47,10 @@ export function ScanProgressScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     let mounted = true;
+    const notifTitle = scope === 'folder' ? `Scanning ${scopeTitle}` : 'Scanning your photos';
     const run = async () => {
       try {
+        await startScanNotification(notifTitle);
         let photos: ScanPhotoItem[];
         if (scope === 'folder' && params && 'albumId' in params) {
           const { fetchAlbumPhotos } = await import('../../db/media');
@@ -81,6 +89,12 @@ export function ScanProgressScreen({ navigation, route }: Props) {
                 : 'detecting',
           );
           setFacesTotal((prev) => (e.photoFaces > 0 ? prev + e.photoFaces : prev));
+          void updateScanNotification({
+            processed: e.processed,
+            total,
+            stage: e.stage,
+            faces: e.photoFaces,
+          });
         };
         const result =
           scope === 'folder' && params && 'albumId' in params
@@ -94,15 +108,21 @@ export function ScanProgressScreen({ navigation, route }: Props) {
               });
         if (!mounted) return;
         if (result.cancelled) {
+          await dismissScanNotification();
           navigation.goBack();
           return;
         }
         setProgress(100);
         setDone(true);
         setFacesTotal(result.totalFaces);
+        void finishScanNotification({
+          faces: result.totalFaces,
+          photos: result.processed,
+        });
       } catch (err) {
         if (!mounted) return;
         setError(err instanceof Error ? err.message : String(err));
+        void finishScanNotification({ faces: 0, photos: 0, failed: true });
       }
     };
     run();
@@ -168,6 +188,7 @@ export function ScanProgressScreen({ navigation, route }: Props) {
         style={styles.cancelBtn}
         onPress={() => {
           cancelRef.current = true;
+          void dismissScanNotification();
           if (done) navigation.goBack();
         }}
       >
