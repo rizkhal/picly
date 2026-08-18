@@ -7,6 +7,24 @@ import { getDb } from './index';
 import { embeddingToBlob } from '../utils/vec';
 import type { PersonCluster } from './cluster';
 
+/** Directory where custom avatar images are stored (app-private). */
+export const AVATAR_DIR = 'avatars';
+
+/**
+ * avatar_path format on mobile:
+ *  - null            -> auto (best-quality face crop)
+ *  - <faceId>        -> legacy: a face id chosen as avatar
+ *  - custom:<file>   -> user-uploaded image copied into AVATAR_DIR
+ */
+export function isCustomAvatar(value: string | null): boolean {
+  return !!value?.startsWith('custom:');
+}
+
+export function avatarFilePath(value: string | null): string | null {
+  if (!isCustomAvatar(value)) return null;
+  return `${AVATAR_DIR}/${value!.slice('custom:'.length)}`;
+}
+
 export interface PersonRow {
   id: string;
   name: string;
@@ -60,18 +78,39 @@ export async function listPersons(): Promise<Person[]> {
   );
   const avatars = await representativeAvatars();
   const chosen = await chosenAvatarUris();
+  const custom = await customAvatarUris();
   return rows.map((r) => {
-    const chosenUri = r.avatar_path ? chosen.get(r.avatar_path) : undefined;
+    const chosenUri = isCustomAvatar(r.avatar_path)
+      ? custom.get(r.avatar_path!)
+      : r.avatar_path
+        ? chosen.get(r.avatar_path)
+        : undefined;
     return {
       id: r.id,
       name: r.name,
       avatarUri: chosenUri ?? avatars.get(r.id) ?? '',
-      avatarFaceId: r.avatar_path,
+      avatarFaceId: isCustomAvatar(r.avatar_path) ? null : r.avatar_path,
       faceCount: r.face_count,
       photoCount: r.photo_count,
       quality: tierFromScore(r.avg_quality),
     };
   });
+}
+
+/** Uri per custom avatar (avatar_path = 'custom:<file>' -> file uri in AVATAR_DIR). */
+async function customAvatarUris(): Promise<Map<string, string>> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<{ avatar_path: string }>(
+    `SELECT avatar_path FROM persons WHERE avatar_path LIKE 'custom:%'`,
+  );
+  const FileSystem = require('expo-file-system/legacy');
+  const out = new Map<string, string>();
+  for (const r of rows) {
+    if (!isCustomAvatar(r.avatar_path)) continue;
+    const rel = avatarFilePath(r.avatar_path);
+    out.set(r.avatar_path, rel ? `${FileSystem.documentDirectory}${rel}` : '');
+  }
+  return out;
 }
 
 /** Representative avatar uri per person (best-quality face crop row -> photo uri). */
@@ -128,9 +167,13 @@ export async function getPerson(personId: string): Promise<{ person: Person; fac
     personId,
   );
 
-  // avatar_path = chosen avatar FACE id; fall back to best-quality face.
+  // avatar_path formats: null (auto) | face id (legacy) | custom:<file>
   let avatarUri = '';
-  if (person.avatar_path) {
+  if (isCustomAvatar(person.avatar_path)) {
+    const rel = avatarFilePath(person.avatar_path);
+    const FileSystem = require('expo-file-system/legacy');
+    avatarUri = rel ? `${FileSystem.documentDirectory}${rel}` : '';
+  } else if (person.avatar_path) {
     const chosenRow = await db.getFirstAsync<{ uri: string }>(
       `SELECT ph.uri AS uri
        FROM faces f JOIN photos ph ON ph.id = f.photo_id
@@ -148,7 +191,7 @@ export async function getPerson(personId: string): Promise<{ person: Person; fac
       id: person.id,
       name: person.name,
       avatarUri,
-      avatarFaceId: person.avatar_path,
+      avatarFaceId: isCustomAvatar(person.avatar_path) ? null : person.avatar_path,
       faceCount: person.face_count,
       photoCount: person.photo_count,
       quality: tierFromScore(person.avg_quality),
@@ -166,6 +209,55 @@ export async function setPersonAvatar(personId: string, faceId: string | null): 
   await db.runAsync(
     `UPDATE persons SET avatar_path = ?, updated_at = datetime('now') WHERE id = ?`,
     faceId,
+    personId,
+  );
+}
+
+/**
+ * Set a user-uploaded avatar image (already cropped). The source is copied
+ * into the app's avatar dir, so it survives the source being deleted, and the
+ * person row points at 'custom:<file>'.
+ */
+export async function setPersonAvatarImage(personId: string, sourceUri: string): Promise<void> {
+  const db = await getDb();
+  const FileSystem = require('expo-file-system/legacy');
+  const fileName = `person-${personId}.jpg`;
+  // documentDirectory ends with '/'; AVATAR_DIR doesn't — keep the separator.
+  const destDir = (FileSystem.documentDirectory ?? '') + AVATAR_DIR + '/';
+  await FileSystem.makeDirectoryAsync(destDir, { intermediates: true }).catch(() => {});
+  const dest = destDir + fileName;
+
+  // Remove any previously stored custom avatar for this person (keep dir tidy).
+  const prev = await db.getFirstAsync<{ avatar_path: string | null }>(
+    `SELECT avatar_path FROM persons WHERE id = ?`,
+    personId,
+  );
+  if (isCustomAvatar(prev?.avatar_path ?? null)) {
+    const prevRel = avatarFilePath(prev?.avatar_path ?? null);
+    if (prevRel) {
+      await FileSystem.deleteAsync(FileSystem.documentDirectory + prevRel, { idempotent: true }).catch(() => {});
+    }
+  }
+
+  let copyOk = false;
+  try {
+    await FileSystem.copyAsync({ from: sourceUri, to: dest });
+    copyOk = true;
+  } catch (e) {
+    console.warn('[avatar] copyAsync failed, falling back:', e);
+    try {
+      const base64 = await FileSystem.readAsStringAsync(sourceUri, { encoding: FileSystem.EncodingType.Base64 });
+      await FileSystem.writeAsStringAsync(dest, base64, { encoding: FileSystem.EncodingType.Base64 });
+      copyOk = true;
+    } catch (e2) {
+      console.warn('[avatar] fallback write failed:', e2);
+    }
+  }
+  console.log('[avatar] avatar saved:', dest);
+
+  await db.runAsync(
+    `UPDATE persons SET avatar_path = ?, updated_at = datetime('now') WHERE id = ?`,
+    `custom:${fileName}`,
     personId,
   );
 }

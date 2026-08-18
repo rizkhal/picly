@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react';
 import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import BottomSheet, { BottomSheetTextInput, BottomSheetView } from '@expo/ui/community/bottom-sheet';
-import { ArrowLeft, PencilSimple, X } from 'phosphor-react-native';
+import { ArrowCounterClockwise, ArrowLeft, Camera, ImageSquare, PencilSimple, X } from 'phosphor-react-native';
+import ImagePicker from 'react-native-image-crop-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/types';
 import type { FaceBox } from '../../types';
 import { usePersonDetail } from '../../db/hooks';
-import { renamePerson } from '../../db/store';
+import { renamePerson, setPersonAvatar, setPersonAvatarImage } from '../../db/store';
 import { colors, radius, spacing } from '../../theme';
 import { QualityBadge } from '../components/QualityBadge';
 import { ScreenSafeArea } from '../components/ScreenSafeArea';
@@ -21,8 +22,10 @@ export function PersonDetailScreen({ route, navigation }: Props) {
   const { person, faces, loading, reload } = usePersonDetail(personId);
 
   const sheetRef = useRef<BottomSheet>(null);
+  const avatarSheetRef = useRef<BottomSheet>(null);
   const inputRef = useRef<TextInput>(null);
   const [draft, setDraft] = useState('');
+  const [avatarBusy, setAvatarBusy] = useState(false);
 
   const openRename = () => {
     setDraft(person?.name ?? '');
@@ -35,6 +38,50 @@ export function PersonDetailScreen({ route, navigation }: Props) {
     await renamePerson(personId, draft);
     sheetRef.current?.close();
     reload();
+  };
+
+  const pickAvatar = async (source: 'gallery' | 'camera') => {
+    avatarSheetRef.current?.close();
+    setAvatarBusy(true);
+    try {
+      const image =
+        source === 'camera'
+          ? await ImagePicker.openCamera({
+              width: 512,
+              height: 512,
+              cropping: true,
+              cropperCircleOverlay: true,
+              compressImageQuality: 0.9,
+            })
+          : await ImagePicker.openPicker({
+              width: 512,
+              height: 512,
+              cropping: true,
+              cropperCircleOverlay: true,
+              compressImageQuality: 0.9,
+              mediaType: 'photo',
+            });
+      await setPersonAvatarImage(personId, image.path);
+      reload();
+    } catch (err: any) {
+      // User cancelled the picker/crop — ignore silently.
+      if (err?.code !== 'E_PICKER_CANCELLED' && !err?.message?.includes('cancelled')) {
+        console.warn('[avatar] pick failed:', err);
+      }
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const resetAvatar = async () => {
+    avatarSheetRef.current?.close();
+    setAvatarBusy(true);
+    try {
+      await setPersonAvatar(personId, null);
+      reload();
+    } finally {
+      setAvatarBusy(false);
+    }
   };
 
   if (loading || !person) {
@@ -92,7 +139,12 @@ export function PersonDetailScreen({ route, navigation }: Props) {
       </View>
 
       <View style={styles.summary}>
-        <Image source={{ uri: person.avatarUri }} style={styles.avatar} />
+        <Pressable style={styles.avatarWrap} onPress={() => avatarSheetRef.current?.snapToIndex(0)} disabled={avatarBusy}>
+          <Image source={{ uri: person.avatarUri }} style={styles.avatar} />
+          <View style={styles.avatarEditBadge}>
+            {avatarBusy ? <Spinner size="small" color={colors.text} /> : <Camera size={13} color={colors.text} />}
+          </View>
+        </Pressable>
         <View style={styles.summaryInfo}>
           <Text style={styles.faceCount}>{person.faceCount} faces</Text>
           <Text style={styles.photoCount}>
@@ -153,6 +205,32 @@ export function PersonDetailScreen({ route, navigation }: Props) {
           </Pressable>
         </BottomSheetView>
       </BottomSheet>
+
+      {/* Avatar source bottom sheet */}
+      <BottomSheet ref={avatarSheetRef} index={-1} enablePanDownToClose backgroundStyle={styles.sheet}>
+        <BottomSheetView style={styles.sheetContent}>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Update avatar</Text>
+            <Pressable onPress={() => avatarSheetRef.current?.close()} hitSlop={10}>
+              <X size={18} color={colors.textMuted} />
+            </Pressable>
+          </View>
+          <Pressable style={styles.optionRow} onPress={() => pickAvatar('gallery')} disabled={avatarBusy}>
+            <ImageSquare size={20} color={colors.accent} />
+            <Text style={styles.optionLabel}>Choose from gallery</Text>
+          </Pressable>
+          <Pressable style={styles.optionRow} onPress={() => pickAvatar('camera')} disabled={avatarBusy}>
+            <Camera size={20} color={colors.accent} />
+            <Text style={styles.optionLabel}>Take a photo</Text>
+          </Pressable>
+          {person.avatarFaceId === null && (
+            <Pressable style={styles.optionRow} onPress={resetAvatar} disabled={avatarBusy}>
+              <ArrowCounterClockwise size={20} color={colors.accent} />
+              <Text style={styles.optionLabel}>Reset to best quality</Text>
+            </Pressable>
+          )}
+        </BottomSheetView>
+      </BottomSheet>
     </ScreenSafeArea>
   );
 }
@@ -193,11 +271,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.lg,
   },
+  avatarWrap: {
+    position: 'relative',
+  },
   avatar: {
     width: 72,
     height: 72,
     borderRadius: radius.full,
     backgroundColor: colors.surface2,
+  },
+  avatarEditBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 24,
+    height: 24,
+    borderRadius: radius.full,
+    backgroundColor: colors.accent,
+    borderWidth: 2,
+    borderColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+  },
+  optionLabel: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '500',
   },
   summaryInfo: {
     gap: 2,
